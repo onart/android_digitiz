@@ -53,6 +53,9 @@ add_library(digitiz_host_lib STATIC
     src/display/Win32DisplayInfo.cpp
     src/input/PointerPipeline.cpp
     src/input/Win32InputInjector.cpp
+    src/platform/Win32Process.cpp
+    src/transport/AdbClient.cpp
+    src/transport/AdbTransport.cpp
     src/ui/ImGuiShell.cpp
 )
 
@@ -60,8 +63,8 @@ target_include_directories(digitiz_host_lib PUBLIC src)
 target_link_libraries(digitiz_host_lib PUBLIC digitiz::common digitiz_imgui)
 
 if(WIN32)
-    # Shcore: GetDpiForMonitor
-    target_link_libraries(digitiz_host_lib PUBLIC Shcore)
+    # Shcore: GetDpiForMonitor.  ws2_32: sockets.
+    target_link_libraries(digitiz_host_lib PUBLIC Shcore ws2_32)
 endif()
 
 add_executable(digitiz_host src/main.cpp)

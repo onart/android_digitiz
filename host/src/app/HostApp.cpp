@@ -20,6 +20,16 @@ constexpr auto kLayoutRefreshInterval = std::chrono::seconds(1);
 // under a second.
 constexpr auto kCursorSettleDelay = std::chrono::milliseconds(6);
 
+constexpr auto kPingInterval = std::chrono::seconds(1);
+constexpr int kMaxUnansweredPings = 3;
+
+std::uint64_t now_us() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
 ImVec4 level_color(core::LogLevel level) {
     switch (level) {
     case core::LogLevel::Trace:
@@ -56,16 +66,215 @@ bool HostApp::init() {
     return true;
 }
 
+bool HostApp::start_transport() {
+    transport_ = std::make_unique<AdbTransport>();
+    transport_->set_handlers(
+        [this](proto::MsgType type, std::span<const std::byte> payload) {
+            on_transport_message(type, payload);
+        },
+        [this] { on_transport_connect(); }, [this] { on_transport_disconnect(); });
+    return transport_->start();
+}
+
 void HostApp::tick() {
     refresh_layout(false);
+    pump_session();
 }
 
 void HostApp::shutdown() {
+    // Stop the transport first so nothing arrives while we are tearing down.
+    if (transport_) {
+        transport_->stop();
+    }
     if (pipeline_) {
         // Whatever else happens, do not leave a mouse button held on the
         // user's desktop.
+        std::lock_guard lock(pipeline_mutex_);
         pipeline_->end_session();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Transport thread
+
+void HostApp::on_transport_connect() {
+    {
+        std::lock_guard lock(session_mutex_);
+        guest_known_ = false;
+        hello_ack_pending_ = false;
+        rtt_ms_ = -1.0;
+        unanswered_pings_ = 0;
+    }
+    session_active_ = true;
+    last_ping_ = std::chrono::steady_clock::now();
+}
+
+void HostApp::on_transport_disconnect() {
+    session_active_ = false;
+    {
+        // A dropped cable mid-stroke must not leave the button held.
+        std::lock_guard lock(pipeline_mutex_);
+        pipeline_->end_session();
+    }
+    std::lock_guard lock(session_mutex_);
+    guest_known_ = false;
+    rtt_ms_ = -1.0;
+}
+
+void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byte> payload) {
+    switch (type) {
+    case proto::MsgType::Pointer: {
+        proto::Pointer p;
+        if (!proto::decode(payload, p)) {
+            DZ_WARN("malformed POINTER payload (%zu bytes)", payload.size());
+            return;
+        }
+        std::lock_guard lock(pipeline_mutex_);
+        pipeline_->handle(p);
+        break;
+    }
+
+    case proto::MsgType::Hello: {
+        proto::Hello hello;
+        if (!proto::decode(payload, hello)) {
+            DZ_WARN("malformed HELLO payload (%zu bytes)", payload.size());
+            return;
+        }
+        DZ_INFO("guest HELLO: \"%s\" %dx%d density %.2f (protocol v%u)", hello.device.c_str(),
+                hello.screen_w, hello.screen_h, static_cast<double>(hello.density),
+                static_cast<unsigned>(hello.proto_ver));
+
+        if (hello.proto_ver != proto::kProtocolVersion) {
+            DZ_ERROR("protocol mismatch: guest speaks v%u, host speaks v%u — dropping session",
+                     static_cast<unsigned>(hello.proto_ver),
+                     static_cast<unsigned>(proto::kProtocolVersion));
+            transport_->drop_session();
+            return;
+        }
+
+        std::lock_guard lock(session_mutex_);
+        guest_ = std::move(hello);
+        guest_known_ = true;
+        // The reply needs the display layout, which the UI thread owns, so
+        // hand it off rather than reaching across.
+        hello_ack_pending_ = true;
+        break;
+    }
+
+    case proto::MsgType::Pong: {
+        proto::Pong pong;
+        if (!proto::decode(payload, pong)) {
+            return;
+        }
+        const double rtt = static_cast<double>(now_us() - pong.t_send_us) / 1000.0;
+        std::lock_guard lock(session_mutex_);
+        rtt_ms_ = rtt;
+        unanswered_pings_ = 0;
+        break;
+    }
+
+    case proto::MsgType::Ping: {
+        proto::Ping ping;
+        if (!proto::decode(payload, ping)) {
+            return;
+        }
+        const auto reply = proto::encode(proto::Pong{ping.t_send_us, now_us()});
+        transport_->send(reply);
+        break;
+    }
+
+    case proto::MsgType::Log: {
+        proto::LogMessage msg;
+        if (!proto::decode(payload, msg)) {
+            return;
+        }
+        // Guest lines land in the same console as ours, on one timeline.
+        core::log_write(msg.level, "[guest] " + msg.text);
+        break;
+    }
+
+    default:
+        DZ_DEBUG("ignoring %s (%zu byte payload)", proto::to_string(type), payload.size());
+        break;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UI thread
+
+void HostApp::pump_session() {
+    if (!transport_ || !session_active_) {
+        return;
+    }
+
+    bool send_ack = false;
+    {
+        std::lock_guard lock(session_mutex_);
+        if (hello_ack_pending_) {
+            hello_ack_pending_ = false;
+            send_ack = true;
+        }
+    }
+    if (send_ack) {
+        send_hello_ack();
+        send_host_state();
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last_ping_ < kPingInterval) {
+        return;
+    }
+    last_ping_ = now;
+
+    int unanswered = 0;
+    {
+        std::lock_guard lock(session_mutex_);
+        unanswered = ++unanswered_pings_;
+    }
+
+    if (unanswered > kMaxUnansweredPings) {
+        DZ_WARN("guest missed %d heartbeats; dropping the session", unanswered - 1);
+        transport_->drop_session();
+        return;
+    }
+
+    transport_->send(proto::encode(proto::Ping{now_us()}));
+}
+
+void HostApp::send_hello_ack() {
+    proto::HelloAck ack;
+    ack.proto_ver = proto::kProtocolVersion;
+#ifdef _WIN32
+    ack.host_os = proto::HostOs::Windows;
+#elif defined(__APPLE__)
+    ack.host_os = proto::HostOs::MacOS;
+#else
+    ack.host_os = proto::HostOs::Linux;
+#endif
+    ack.vx = layout_.virtual_bounds.x;
+    ack.vy = layout_.virtual_bounds.y;
+    ack.vw = layout_.virtual_bounds.w;
+    ack.vh = layout_.virtual_bounds.h;
+
+    for (const MonitorInfo& m : layout_.monitors) {
+        ack.monitors.push_back(proto::Monitor{m.bounds.x, m.bounds.y, m.bounds.w, m.bounds.h,
+                                              m.dpi, m.primary});
+    }
+
+    if (transport_->send(proto::encode(ack))) {
+        DZ_INFO("sent HELLO_ACK: virtual %dx%d at (%d, %d), %zu monitor(s)", ack.vw, ack.vh, ack.vx,
+                ack.vy, ack.monitors.size());
+    }
+}
+
+void HostApp::send_host_state() {
+    proto::HostState state;
+    state.enabled = enabled_;
+    {
+        std::lock_guard lock(pipeline_mutex_);
+        state.injecting = pipeline_->stroke_active();
+    }
+    transport_->send(proto::encode(state));
 }
 
 void HostApp::refresh_layout(bool force) {
@@ -225,15 +434,18 @@ void HostApp::draw_status_panel() {
     ImGui::SetItemTooltip("While off, pointer messages are received and counted but never injected.");
 
     if (enabled_ != was_enabled) {
-        pipeline_->set_enabled(enabled_);
+        {
+            std::lock_guard lock(pipeline_mutex_);
+            pipeline_->set_enabled(enabled_);
+        }
+        if (transport_ && session_active_) {
+            send_host_state();
+        }
     }
 
     ImGui::Spacing();
 
-    // --- transport (phase 3) ---
-    if (ImGui::CollapsingHeader("Connection", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::TextDisabled("ADB transport lands in phase 3.");
-    }
+    draw_connection_panel();
 
     // --- display ---
     if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -266,17 +478,24 @@ void HostApp::draw_status_panel() {
 
     // --- pipeline ---
     if (ImGui::CollapsingHeader("Pointer pipeline", ImGuiTreeNodeFlags_DefaultOpen)) {
-        const PointerPipeline::Stats& s = pipeline_->stats();
+        PointerPipeline::Stats s;
+        bool stroke = false;
+        {
+            std::lock_guard lock(pipeline_mutex_);
+            s = pipeline_->stats();
+            stroke = pipeline_->stroke_active();
+        }
+
         ImGui::Text("received %llu   injected %llu", static_cast<unsigned long long>(s.received),
                     static_cast<unsigned long long>(s.injected));
         ImGui::Text("dropped (off) %llu   protocol errors %llu   inject failures %llu",
                     static_cast<unsigned long long>(s.dropped_disabled),
                     static_cast<unsigned long long>(s.protocol_errors),
                     static_cast<unsigned long long>(s.inject_failures));
-        ImGui::Text("stroke: %s   clamped coords: %llu",
-                    pipeline_->stroke_active() ? "ACTIVE" : "idle",
+        ImGui::Text("stroke: %s   clamped coords: %llu", stroke ? "ACTIVE" : "idle",
                     static_cast<unsigned long long>(injector_->clamped_count()));
         if (ImGui::SmallButton("Reset stats")) {
+            std::lock_guard lock(pipeline_mutex_);
             pipeline_->reset_stats();
         }
     }
@@ -284,6 +503,70 @@ void HostApp::draw_status_panel() {
     draw_selftest_panel();
 
     ImGui::End();
+}
+
+void HostApp::draw_connection_panel() {
+    if (!ImGui::CollapsingHeader("Connection", ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    if (!transport_) {
+        ImGui::TextDisabled("Transport not started.");
+        return;
+    }
+
+    const TransportStatus st = transport_->status();
+
+    ImVec4 color(0.70f, 0.72f, 0.78f, 1.0f);
+    switch (st.state) {
+    case TransportState::Connected:
+        color = ImVec4(0.45f, 0.90f, 0.50f, 1.0f);
+        break;
+    case TransportState::NoAdb:
+    case TransportState::Unauthorized:
+        color = ImVec4(1.00f, 0.45f, 0.45f, 1.0f);
+        break;
+    default:
+        break;
+    }
+
+    ImGui::TextColored(color, "%s", to_string(st.state));
+    if (!st.detail.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("- %s", st.detail.c_str());
+    }
+
+    if (!st.device_serial.empty()) {
+        ImGui::Text("Device: %s  %s", st.device_serial.c_str(), st.device_model.c_str());
+    }
+    if (st.host_port != 0) {
+        ImGui::Text("Tunnel: device tcp:%d -> host tcp:%d", kDevicePort, st.host_port);
+    }
+
+    {
+        std::lock_guard lock(session_mutex_);
+        if (guest_known_) {
+            ImGui::Text("Guest: \"%s\"  %d x %d  density %.2f", guest_.device.c_str(),
+                        guest_.screen_w, guest_.screen_h, static_cast<double>(guest_.density));
+        }
+        if (rtt_ms_ >= 0.0) {
+            ImGui::Text("RTT: %.2f ms", rtt_ms_);
+        } else if (st.state == TransportState::Connected) {
+            ImGui::TextDisabled("RTT: waiting for the first PONG");
+        }
+    }
+
+    ImGui::Text("rx %llu msg / %llu B    tx %llu msg / %llu B",
+                static_cast<unsigned long long>(st.rx_messages),
+                static_cast<unsigned long long>(st.rx_bytes),
+                static_cast<unsigned long long>(st.tx_messages),
+                static_cast<unsigned long long>(st.tx_bytes));
+    ImGui::Text("sessions %llu    framer resync %llu B",
+                static_cast<unsigned long long>(st.sessions),
+                static_cast<unsigned long long>(st.resync_bytes));
+
+    if (st.state == TransportState::Connected && ImGui::SmallButton("Drop session")) {
+        transport_->drop_session();
+    }
 }
 
 void HostApp::draw_selftest_panel() {

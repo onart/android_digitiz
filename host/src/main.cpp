@@ -71,6 +71,7 @@ int main(int argc, char** argv) {
     if (!app.init()) {
         return 1;
     }
+    app.start_transport();
 
     while (shell.begin_frame()) {
         app.tick();

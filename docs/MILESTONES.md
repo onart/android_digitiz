@@ -55,16 +55,31 @@ ADB 전송으로 확정하면서 **프로젝트-킬러급 리스크는 사라졌
 
 ### Phase 3 — ADB 전송
 
-| # | 작업 | 검증 |
+| # | 작업 | 상태 |
 |---|---|---|
-| 12 | `AdbClient` — adb 탐색(**시스템 PATH 우선**, 없으면 번들), `start-server`, 기기 목록/상태 감시 | 폰이 목록에 뜨고 `unauthorized`/`offline`이 구분 표시됨 |
-| 13 | `AdbTransport` — `127.0.0.1:27183` listen + `adb -s <serial> reverse tcp:27183 tcp:27183` + 종료 시 `--remove` | `adb reverse --list`로 확인 |
-| 14 | `adb shell am start`로 게스트 앱 자동 실행 | 폰을 꽂으면 앱이 뜸 |
-| 15 | accept → **`TCP_NODELAY`** → RX 스레드 + Framer 연결. 케이블 분리/재연결 처리 | 뽑았다 꽂기 반복해도 복구 |
-| 16 | PING/PONG 에코 (게스트는 스텁이어도 됨) | RTT가 Status에 표시됨 |
+| 12 | `AdbClient` — adb 탐색(**시스템 PATH 우선**), `start-server`, 기기 목록/상태 | ✅ |
+| 13 | `AdbTransport` — 루프백 **임시 포트** listen + `adb reverse tcp:27183 tcp:<port>` | ✅ |
+| 14 | `adb shell am start`로 게스트 앱 자동 실행 | ✅ (앱은 Phase 4) |
+| 15 | accept → **`TCP_NODELAY`** → RX 스레드 + Framer + 재연결 루프 | ✅ |
+| 16 | PING/PONG RTT + 하트비트 타임아웃 | ✅ |
 
-`TCP_NODELAY`를 15번에 명시적으로 박아둔다. 빠뜨리면 Nagle이 포인터 이벤트를
-뭉쳐서 원인 찾기 어려운 지연이 생긴다.
+**호스트 측 포트는 임시 포트(bind 0)** 로 잡는다. 디바이스 측만 27183으로 고정하면
+되므로(게스트가 하드코딩), 호스트끼리 포트를 다툴 일이 없어진다.
+
+`TCP_NODELAY` 를 빠뜨리면 Nagle이 포인터 이벤트를 뭉쳐 원인 찾기 어려운 지연이
+생긴다. 세션 수립 직후 설정한다.
+
+### Phase 3 검증 방법 (게스트 앱 없이)
+
+디바이스의 `nc` 로 실제 HELLO를 터널에 흘려보내 전 구간을 확인한다.
+`tools/test-tunnel.sh` 가 이걸 자동화한다.
+
+```bash
+./tools/test-tunnel.sh          # digitiz_host 를 먼저 띄워둘 것
+```
+
+기대 결과: HELLO_ACK(모니터 정보 포함) → HOST_STATE → 1초 간격 PING,
+그리고 netcat은 PONG을 안 보내므로 **3회 미응답 후 세션 드롭**.
 
 ### Phase 4 — 게스트
 

@@ -79,9 +79,11 @@ digitiz/
 │  ├─ src/
 │  │  ├─ main.cpp
 │  │  ├─ app/HostApp.{hpp,cpp}
-│  │  ├─ transport/ITransport.hpp
-│  │  ├─ transport/AdbTransport.{hpp,cpp} # TCP 서버 + adb reverse 관리
-│  │  ├─ transport/AdbClient.{hpp,cpp}    # adb 프로세스 실행 / 기기 감시
+│  │  ├─ transport/Transport.hpp          # ITransport + 상태/통계 타입
+│  │  ├─ transport/AdbTransport.{hpp,cpp} # TCP 서버 + adb reverse + 세션 루프
+│  │  ├─ transport/AdbClient.{hpp,cpp}    # adb 탐색 / 기기 목록 / reverse
+│  │  ├─ platform/Process.hpp             # 자식 프로세스 실행 + 출력 캡처
+│  │  ├─ platform/Win32Process.cpp
 │  │  ├─ input/InputInjector.hpp          # IInputInjector + 팩토리
 │  │  ├─ input/AbsoluteCoord.hpp          # 순수 좌표 정규화 (전수 테스트됨)
 │  │  ├─ input/Win32InputInjector.cpp
@@ -148,27 +150,32 @@ Kotlin은 GameActivity 서브클래스 한 줄짜리만 남는다. AOA였다면 
 ### 4.2 호스트 상태머신
 
 ```
-[Idle]
-  │  adb 서버 확인 / 기동
-  │  기기 감시: 5037 소켓의 host:track-devices (푸시) 또는 adb devices 폴링
+[WaitingForDevice]
+  │  adb 탐색 / start-server
+  │  adb devices -l 폴링 (1초 백오프)
+  │    unauthorized 만 있으면 → [Unauthorized] (폰에서 RSA 승인 필요)
   ▼
-[DeviceFound serial]
-  │  ① 127.0.0.1:27183 에 TCP listen
-  │  ② adb -s <serial> reverse tcp:27183 tcp:27183
-  │  ③ adb -s <serial> shell am start -n com.onart.digitiz/.MainActivity
+[Preparing]
+  │  ① 127.0.0.1:0 에 listen  → 커널이 임시 포트 P 배정
+  │  ② adb -s <serial> reverse --remove tcp:27183   (이전 크래시 잔재 정리)
+  │  ③ adb -s <serial> reverse tcp:27183 tcp:P
+  │  ④ adb -s <serial> shell am start -n com.onart.digitiz/.MainActivity
   ▼
-[WaitConnect]  타임아웃 10초
-  │  accept 성공 → TCP_NODELAY 설정 → HELLO 수신 대기
+[WaitingForClient]  타임아웃 15초
+  │  accept 성공 → TCP_NODELAY → [Connected]
   ▼
 [Connected]
-  │  RX 스레드: recv() → Framer → 디스패치
-  │  TX: 송신 큐 → send()   (단일 writer)
-  │  소켓 종료 / 기기 분리 → adb reverse --remove 후 [Idle]
+  │  전송 스레드: select(250ms) → recv() → Framer → 핸들러
+  │  UI 스레드: 1초마다 PING, 3회 미응답이면 drop_session()
+  │  소켓 종료 / 기기 분리 → reverse --remove 후 [WaitingForDevice]
 ```
 
-`adb reverse tcp:27183 tcp:27183` 은 **폰에서** 27183을 listen 하여 PC의 27183으로
-터널링한다. 따라서 게스트는 폰의 `127.0.0.1:27183` 에 connect 하는 평범한 TCP
-클라이언트가 되고, **PC=서버 / 폰=클라이언트 구조가 그대로 보존된다.**
+`adb reverse tcp:27183 tcp:P` 는 **폰에서** 27183을 listen 하여 PC의 P로 터널링한다.
+따라서 게스트는 폰의 `127.0.0.1:27183` 에 connect 하는 평범한 TCP 클라이언트가 되고,
+**PC=서버 / 폰=클라이언트 구조가 그대로 보존된다.**
+
+**호스트 측 포트는 임시 포트(bind 0)** 다. 디바이스 측만 고정이면 충분하므로
+(게스트가 하드코딩), 호스트를 두 번 띄워도 포트를 다투지 않는다.
 
 앱 자동 실행을 `am start`로 우리가 직접 제어한다는 점도 이득이다.
 AOA였다면 시스템의 "이 앱으로 열까요?" 팝업에 의존해야 했다.
