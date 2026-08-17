@@ -1,0 +1,26 @@
+# build
+/build/
+/out/
+cmake-build-*/
+_deps/
+
+# guest (gradle / android studio)
+/guest/.gradle/
+/guest/build/
+/guest/app/build/
+/guest/local.properties
+/guest/.cxx/
+/guest/app/.cxx/
+*.apk
+*.aab
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+CMakeUserPresets.json
+
+# os
+Thumbs.db
+.DS_Store

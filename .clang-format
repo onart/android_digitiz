@@ -1,0 +1,31 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++20
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+AccessModifierOffset: -4
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Attach
+FixNamespaceComments: true
+NamespaceIndentation: None
+PointerAlignment: Left
+SeparateDefinitionBlocks: Always
+SpaceAfterTemplateKeyword: false
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<digitiz/'
+    Priority: 2
+  - Regex: '^<'
+    Priority: 1
+  - Regex: '.*'
+    Priority: 3
