@@ -71,6 +71,11 @@ private:
     std::atomic<std::uint64_t> resync_bytes_{0};
     std::atomic<std::uint64_t> sessions_{0};
 
+    // Device we have already tried to launch the guest on, so the retry loop
+    // does not relaunch it every cycle. Cleared when the device detaches.
+    // Transport thread only.
+    std::string launched_serial_;
+
     mutable std::mutex state_mutex_;
     TransportState state_ = TransportState::Stopped;
     std::string detail_;

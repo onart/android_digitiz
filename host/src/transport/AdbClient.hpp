@@ -36,6 +36,10 @@ public:
 
     bool start_activity(const std::string& serial, const std::string& component);
 
+    // Whether the package already has a live process. Launching it again would
+    // only drag it to the foreground, which is rude if the user is elsewhere.
+    bool is_app_running(const std::string& serial, const std::string& package);
+
 private:
     ProcessResult run(const std::vector<std::string>& args, int timeout_ms = 10000);
 

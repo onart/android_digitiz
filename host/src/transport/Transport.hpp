@@ -18,6 +18,7 @@ namespace digitiz::host {
 // Fixed on the device side because the guest hard-codes it. The host side port
 // is ephemeral, so two hosts never fight over a port.
 inline constexpr int kDevicePort = 27183;
+inline constexpr const char* kGuestPackage = "com.onart.digitiz";
 inline constexpr const char* kGuestComponent = "com.onart.digitiz/.MainActivity";
 
 enum class TransportState : std::uint8_t {

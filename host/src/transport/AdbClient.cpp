@@ -196,6 +196,13 @@ bool AdbClient::reverse_remove(const std::string& serial, int device_port) {
     return true;
 }
 
+bool AdbClient::is_app_running(const std::string& serial, const std::string& package) {
+    // pidof prints nothing and exits non-zero when the package is not running,
+    // so the output is the reliable signal rather than the exit code.
+    const ProcessResult r = run({"-s", serial, "shell", "pidof", package}, 6000);
+    return !trim(r.output).empty();
+}
+
 bool AdbClient::start_activity(const std::string& serial, const std::string& component) {
     const ProcessResult r = run({"-s", serial, "shell", "am", "start", "-n", component}, 10000);
 

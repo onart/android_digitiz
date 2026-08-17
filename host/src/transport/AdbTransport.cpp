@@ -185,6 +185,9 @@ bool AdbTransport::serve_one_session() {
     }
 
     if (chosen == nullptr) {
+        // The device is gone, so the next one that shows up gets a fresh
+        // launch — including the same phone after a replug or reboot.
+        launched_serial_.clear();
         if (saw_unauthorized) {
             set_state(TransportState::Unauthorized,
                       "accept the USB debugging prompt on the phone");
@@ -226,9 +229,24 @@ bool AdbTransport::serve_one_session() {
         return false;
     }
 
-    // A missing guest app is expected until phase 4; keep listening either way
-    // so a manual client can still be used to exercise the tunnel.
-    adb_.start_activity(serial, kGuestComponent);
+    // Launch the guest at most once per device attachment, and never while it
+    // is already running.
+    //
+    // This loop retries roughly every 16 seconds whenever nothing is
+    // connected. Calling `am start` each time round would drag the app to the
+    // foreground while the user is doing something else, and would resurrect
+    // it seconds after they deliberately closed it. Once it is running it
+    // reconnects on its own, so there is nothing to launch.
+    if (launched_serial_ != serial) {
+        if (adb_.is_app_running(serial, kGuestPackage)) {
+            DZ_DEBUG("guest already running; waiting for it to connect");
+        } else {
+            adb_.start_activity(serial, kGuestComponent);
+        }
+        // Set either way: a launch that failed (app not installed) should be
+        // reported once per attachment, not every retry.
+        launched_serial_ = serial;
+    }
 
     set_state(TransportState::WaitingForClient, "waiting for the guest to connect");
 
