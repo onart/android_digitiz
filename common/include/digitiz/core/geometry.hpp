@@ -60,11 +60,17 @@ public:
     void pan_by(Vec2 surface_delta) noexcept { pan_ = pan_ - surface_delta / scale_; }
 
     // Frames `rect` inside a surface_w x surface_h viewport, centered.
-    void fit(Recti rect, double surface_w, double surface_h) noexcept {
+    //
+    // `margin` is the fraction of the viewport to leave empty around the rect,
+    // so 0.12 keeps a 6% gap on each side. Note the scale comes from the inset
+    // area but the centering uses the *full* viewport — shrinking both is the
+    // easy mistake, and it parks the content off toward one corner.
+    void fit(Recti rect, double surface_w, double surface_h, double margin = 0.0) noexcept {
         if (rect.w <= 0 || rect.h <= 0 || surface_w <= 0.0 || surface_h <= 0.0) {
             return;
         }
-        const double s = std::min(surface_w / rect.w, surface_h / rect.h);
+        const double usable = std::clamp(1.0 - margin, 0.05, 1.0);
+        const double s = std::min(surface_w * usable / rect.w, surface_h * usable / rect.h);
         scale_ = std::clamp(s, kMinScale, kMaxScale);
         pan_ = rect.center() - Vec2{surface_w / 2.0, surface_h / 2.0} / scale_;
     }

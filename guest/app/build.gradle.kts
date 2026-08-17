@@ -18,7 +18,13 @@ android {
 
         externalNativeBuild {
             cmake {
-                arguments += listOf("-DANDROID_STL=c++_shared")
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    // Android 15+ can run with 16 KB memory pages. Without this
+                    // the platform shows a compatibility warning dialog over
+                    // the app, which also steals focus.
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                )
             }
         }
 

@@ -82,6 +82,22 @@ TEST_CASE("fit handles a negative virtual-desktop origin") {
     CHECK(c.y == doctest::Approx(1200.0));
 }
 
+TEST_CASE("fit with a margin still centers on the full viewport") {
+    // The bug this guards: shrinking the viewport to make room for a margin
+    // also shifts the centre, parking the content toward the top-left.
+    ViewTransform vt;
+    vt.fit(Recti{.x = 0, .y = 0, .w = 1920, .h = 1080}, 720.0, 1544.0, 0.12);
+
+    const Vec2 c = vt.to_surface(Recti{0, 0, 1920, 1080}.center());
+    CHECK(c.x == doctest::Approx(360.0));
+    CHECK(c.y == doctest::Approx(772.0));
+
+    // And the margin is real: the rect must not touch the viewport edges.
+    const Vec2 tl = vt.to_surface(Vec2{0.0, 0.0});
+    CHECK(tl.x > 0.0);
+    CHECK(tl.x == doctest::Approx(720.0 * 0.06));
+}
+
 TEST_CASE("fit ignores degenerate input") {
     ViewTransform vt;
     vt.set(3.0, Vec2{1.0, 2.0});

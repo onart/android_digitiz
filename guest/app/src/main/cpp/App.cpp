@@ -1,36 +1,91 @@
 #include "App.hpp"
 
 #include <GLES3/gl3.h>
+#include <android/configuration.h>
 
 #include <digitiz/core/log.hpp>
 
 namespace digitiz::guest {
 
-App::App(android_app* app) : app_(app) {}
+namespace {
+
+std::uint64_t now_us() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
+} // namespace
+
+App::App(android_app* app)
+    : app_(app),
+      router_(view_, [this](const proto::Pointer& p) { link_.send(proto::encode(p)); }) {
+
+    router_.set_ui_hit_test([this](core::Vec2 p) { return menu_.hit_test(p); });
+
+    link_.set_handlers(
+        [this](proto::MsgType type, std::span<const std::byte> payload) {
+            on_message(type, payload);
+        },
+        [this] { on_link_up(); }, [this] { on_link_down(); });
+}
+
+App::~App() {
+    link_.stop();
+    grid_.release();
+    ui_.release();
+}
+
+void App::start_link() {
+    link_.start(kHostPort);
+}
 
 void App::on_command(std::int32_t cmd) {
     switch (cmd) {
     case APP_CMD_INIT_WINDOW:
-        gl_.attach(app_->window);
+        if (gl_.attach(app_->window)) {
+            if (!renderers_ready_) {
+                renderers_ready_ = grid_.init() && ui_.init();
+                if (!renderers_ready_) {
+                    DZ_ERROR("renderer initialisation failed");
+                }
+            }
+            if (app_->config != nullptr) {
+                const int dpi = AConfiguration_getDensity(app_->config);
+                if (dpi > 0) {
+                    density_ = static_cast<float>(dpi) / 160.0f;
+                }
+            }
+            menu_.layout(gl_.width(), gl_.height(), density_);
+            fit_view_to_desktop();
+            start_link();
+        }
         break;
 
     case APP_CMD_TERM_WINDOW:
+        // GL objects die with the context, so they must be rebuilt on return.
+        grid_.release();
+        ui_.release();
+        renderers_ready_ = false;
         gl_.detach();
         break;
 
     case APP_CMD_WINDOW_RESIZED:
     case APP_CMD_CONFIG_CHANGED:
         gl_.refresh_size();
+        menu_.layout(gl_.width(), gl_.height(), density_);
         break;
 
     case APP_CMD_GAINED_FOCUS:
         has_focus_ = true;
-        DZ_DEBUG("gained focus");
         break;
 
     case APP_CMD_LOST_FOCUS:
         has_focus_ = false;
-        DZ_DEBUG("lost focus");
+        // A stroke cannot be finished if the app is not in front; releasing it
+        // now is what keeps the PC's mouse button from sticking.
+        router_.cancel_stroke();
         break;
 
     default:
@@ -39,17 +94,167 @@ void App::on_command(std::int32_t cmd) {
 }
 
 void App::frame() {
-    if (!gl_.ready()) {
+    if (!gl_.ready() || !renderers_ready_) {
         return;
     }
+
+    const auto now = std::chrono::steady_clock::now();
+    double dt = 1.0 / 60.0;
+    if (last_frame_.time_since_epoch().count() != 0) {
+        dt = std::chrono::duration<double>(now - last_frame_).count();
+    }
+    last_frame_ = now;
+
+    apply_pending();
+    drain_input();
+    menu_.advance(dt);
     render();
     gl_.swap();
 }
 
+void App::drain_input() {
+    android_input_buffer* input = android_app_swap_input_buffers(app_);
+    if (input == nullptr) {
+        return;
+    }
+
+    if (input->motionEventsCount > 0) {
+        for (std::uint64_t i = 0; i < input->motionEventsCount; ++i) {
+            router_.handle(input->motionEvents[i]);
+        }
+        android_app_clear_motion_events(input);
+    }
+    if (input->keyEventsCount > 0) {
+        android_app_clear_key_events(input);
+    }
+}
+
+void App::apply_pending() {
+    bool fit = false;
+    {
+        std::lock_guard lock(pending_mutex_);
+        if (view_needs_fit_) {
+            view_needs_fit_ = false;
+            fit = true;
+        }
+    }
+    if (fit) {
+        fit_view_to_desktop();
+    }
+}
+
+void App::fit_view_to_desktop() {
+    if (gl_.width() <= 0 || gl_.height() <= 0) {
+        return;
+    }
+    core::Recti desktop;
+    {
+        std::lock_guard lock(pending_mutex_);
+        desktop = desktop_;
+    }
+
+    // Leave a margin so the desktop outline is visible rather than flush with
+    // the screen edge.
+    view_.fit(desktop, gl_.width(), gl_.height(), 0.12);
+    DZ_INFO("view fitted to desktop %dx%d at (%d, %d), scale %.4f", desktop.w, desktop.h, desktop.x,
+            desktop.y, view_.scale());
+}
+
 void App::render() {
+    core::Recti desktop;
+    bool enabled = false;
+    bool linked = false;
+    {
+        std::lock_guard lock(pending_mutex_);
+        desktop = desktop_;
+        enabled = host_enabled_;
+        linked = link_up_;
+    }
+
     glViewport(0, 0, gl_.width(), gl_.height());
-    glClearColor(0.07f, 0.08f, 0.10f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    grid_.draw(view_, gl_.width(), gl_.height(), desktop, enabled, linked);
+
+    ui_.begin(gl_.width(), gl_.height());
+    menu_.draw(ui_);
+    ui_.end();
+}
+
+// ---------------------------------------------------------------------------
+// Network thread
+
+void App::on_link_up() {
+    {
+        std::lock_guard lock(pending_mutex_);
+        link_up_ = true;
+    }
+    heartbeat_seen_ = false;
+    send_hello();
+}
+
+void App::on_link_down() {
+    std::lock_guard lock(pending_mutex_);
+    link_up_ = false;
+    host_enabled_ = false;
+}
+
+void App::send_hello() {
+    proto::Hello hello;
+    hello.proto_ver = proto::kProtocolVersion;
+    hello.screen_w = gl_.width();
+    hello.screen_h = gl_.height();
+    hello.density = density_;
+    hello.device = "Digitiz guest";
+    link_.send(proto::encode(hello));
+    DZ_INFO("sent HELLO: %d x %d density %.2f", hello.screen_w, hello.screen_h,
+            static_cast<double>(hello.density));
+}
+
+void App::on_message(proto::MsgType type, std::span<const std::byte> payload) {
+    switch (type) {
+    case proto::MsgType::HelloAck: {
+        proto::HelloAck ack;
+        if (!proto::decode(payload, ack)) {
+            DZ_WARN("malformed HELLO_ACK");
+            return;
+        }
+        DZ_INFO("host: %s, virtual desktop %dx%d at (%d, %d), %zu monitor(s)",
+                proto::to_string(ack.host_os), ack.vw, ack.vh, ack.vx, ack.vy,
+                ack.monitors.size());
+
+        std::lock_guard lock(pending_mutex_);
+        desktop_ = core::Recti{ack.vx, ack.vy, ack.vw, ack.vh};
+        view_needs_fit_ = true;
+        break;
+    }
+
+    case proto::MsgType::HostState: {
+        proto::HostState state;
+        if (!proto::decode(payload, state)) {
+            return;
+        }
+        std::lock_guard lock(pending_mutex_);
+        host_enabled_ = state.enabled;
+        break;
+    }
+
+    case proto::MsgType::Ping: {
+        proto::Ping ping;
+        if (!proto::decode(payload, ping)) {
+            DZ_WARN("malformed PING");
+            return;
+        }
+        if (!link_.send(proto::encode(proto::Pong{ping.t_send_us, now_us()}))) {
+            DZ_WARN("failed to answer PING");
+        } else if (!heartbeat_seen_) {
+            heartbeat_seen_ = true;
+            DZ_INFO("heartbeat established");
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
 }
 
 } // namespace digitiz::guest

@@ -83,14 +83,42 @@ ADB 전송으로 확정하면서 **프로젝트-킬러급 리스크는 사라졌
 
 ### Phase 4 — 게스트
 
-| # | 작업 | 검증 |
+| # | 작업 | 상태 |
 |---|---|---|
-| 17 | `MainActivity`(GameActivity 서브클래스), `AndroidManifest.xml`에 **`INTERNET` 권한**, `KEEP_SCREEN_ON` | 앱이 실행되고 GL 컨텍스트가 잡힘 |
-| 18 | `TcpTransport` — `connect(127.0.0.1:27183)` + 백오프 재시도 + `TCP_NODELAY` + RX 스레드, HELLO 핸드셰이크, `LOG` 송신 | **호스트 콘솔에 게스트 로그가 찍힘** |
-| 19 | GL 컨텍스트 + 프래그먼트 셰이더 그리드 (PC px 기준, LOD) | 그리드가 보임 |
-| 20 | `ViewTransform` + 핀치 zoom / 2지점 pan | 확대·이동이 자연스러운가 |
-| 21 | `TouchRouter` — 1지점=디지타이저, 2지점+=뷰 조작(+`CANCEL` 발행) | **드로잉 중 두 번째 손가락을 대도 PC 커서가 튀지 않음** |
-| 22 | 엣지 핸들 + 사이드 메뉴 드로어 (내용 없음) | 열고 닫힘 |
+| 17 | `MainActivity`(GameActivity 서브클래스), **`INTERNET` 권한**, `KEEP_SCREEN_ON` | ✅ |
+| 18 | `TcpTransport` — `connect(127.0.0.1:27183)` + 백오프 + `TCP_NODELAY` + RX 스레드, HELLO 핸드셰이크 | ✅ |
+| 19 | 프래그먼트 셰이더 그리드 (PC px 기준, LOD, 데스크톱 경계 표시) | ✅ |
+| 20 | `ViewTransform` + 핀치 zoom / 다지점 pan | ✅ (실기 손가락 검증 남음) |
+| 21 | `TouchRouter` — 1지점=디지타이저, 2지점+=뷰 조작(+`CANCEL`) | ✅ (`CANCEL` 경로는 실기 검증 남음) |
+| 22 | 엣지 핸들 + 사이드 메뉴 드로어 (내용 없음) | ✅ |
+
+### Phase 4에서 걸린 것들
+
+빌드 셋업이 구현보다 오래 걸렸다. 재발 방지를 위해 기록한다.
+
+- `games-activity` 3.0.5는 **POM에 의존성을 선언하지 않는데** `GameActivity`는
+  `AppCompatActivity`를 상속한다 → `androidx.appcompat` 직접 추가 + 테마도
+  `Theme.AppCompat` 계열이어야 함
+- 그 결과 kotlin-stdlib 중복 클래스 → jdk7/jdk8 아티팩트를 1.8 이상으로 제약
+- JNI 심볼이 링커에 제거됨 → `--whole-archive` 필요
+- `local.properties`에 백슬래시 금지 (Java Properties의 `\u` 이스케이프)
+- **Android 15의 16KB 페이지**: 정렬 안 되면 시스템 경고 다이얼로그가 앱을 덮고
+  포커스를 뺏는다 → `-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON`
+- 메인 루프에서 poll 타임아웃을 루프 밖에서 한 번만 정하면, 포커스를 잃는 순간
+  영원히 블록된다 (복귀 명령이 루프 안에서 오기 때문) → 매 반복 재계산
+
+### Phase 4 검증 방법
+
+실기에 손을 대지 않고도 전 구간을 확인할 수 있다.
+
+```bash
+adb exec-out screencap -p > screen.png     # 렌더링 확인
+adb shell input swipe 150 550 500 800 500  # 스트로크 주입
+```
+
+720x1544 화면에서 1920x1080 데스크톱에 맞춘 상태(scale 0.33)로
+`(150,550) → (500,800)` 을 그으면 호스트가 `DOWN (455, 148)` / `UP (1515, 906)` 을
+받아야 한다. 계산값과 실측값이 일치하는지가 좌표계 전체의 검증이다.
 
 ### Phase 5 — 통합
 

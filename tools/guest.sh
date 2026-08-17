@@ -10,21 +10,28 @@
 #
 #  1. JAVA_HOME on this machine points at a Java 8 from emsdk, which Gradle
 #     rejects. Android Studio's bundled JBR 17 is used instead.
-#  2. Git Bash rewrites /data/... arguments into Windows paths, so adb needs
-#     MSYS_NO_PATHCONV=1 — and once that is set, JAVA_HOME must already be in
-#     Windows form or Gradle cannot find it either.
+#  2. JAVA_HOME is given in Windows form. Note this script deliberately does
+#     NOT set MSYS_NO_PATHCONV: every path here is a host path that Git Bash
+#     should translate. Only scripts that pass device paths like /data/local/tmp
+#     need to suppress that (see test-tunnel.sh).
 
 set -euo pipefail
-export MSYS_NO_PATHCONV=1
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GUEST="$HERE/guest"
 
-: "${JAVA_HOME:=C:/Program Files/Android/Android Studio/jbr}"
-if [ ! -d "$JAVA_HOME" ] || [ ! -x "$JAVA_HOME/bin/java.exe" ]; then
-    JAVA_HOME="C:/Program Files/Android/Android Studio/jbr"
-fi
+# Overridden unconditionally, not defaulted: the inherited JAVA_HOME on this
+# machine points at a Java 8 from emsdk, and Gradle fails with a confusing
+# "no matching variant ... compatible with Java 8" rather than saying so.
+# Set DIGITIZ_JAVA_HOME to use a different JDK.
+JAVA_HOME="${DIGITIZ_JAVA_HOME:-C:/Program Files/Android/Android Studio/jbr}"
 export JAVA_HOME
+
+if [ ! -x "$JAVA_HOME/bin/java.exe" ] && [ ! -x "$JAVA_HOME/bin/java" ]; then
+    echo "no JDK at JAVA_HOME=$JAVA_HOME" >&2
+    echo "set DIGITIZ_JAVA_HOME to a JDK 17+ installation" >&2
+    exit 1
+fi
 
 ADB="${ADB:-$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe}"
 APK="$GUEST/app/build/outputs/apk/debug/app-debug.apk"

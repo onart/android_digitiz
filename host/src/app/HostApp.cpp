@@ -129,6 +129,12 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
             DZ_WARN("malformed POINTER payload (%zu bytes)", payload.size());
             return;
         }
+        // Stroke boundaries are logged; MOVE is not, or a single drag would
+        // bury everything else. The pipeline counters cover the volume.
+        if (p.action != proto::PointerAction::Move) {
+            DZ_DEBUG("POINTER %s at (%d, %d)", proto::to_string(p.action), p.x, p.y);
+        }
+
         std::lock_guard lock(pipeline_mutex_);
         pipeline_->handle(p);
         break;
@@ -167,9 +173,16 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
             return;
         }
         const double rtt = static_cast<double>(now_us() - pong.t_send_us) / 1000.0;
-        std::lock_guard lock(session_mutex_);
-        rtt_ms_ = rtt;
-        unanswered_pings_ = 0;
+        bool first = false;
+        {
+            std::lock_guard lock(session_mutex_);
+            first = rtt_ms_ < 0.0;
+            rtt_ms_ = rtt;
+            unanswered_pings_ = 0;
+        }
+        if (first) {
+            DZ_INFO("heartbeat established, RTT %.2f ms", rtt);
+        }
         break;
     }
 
@@ -238,6 +251,11 @@ void HostApp::pump_session() {
         return;
     }
 
+    // A healthy heartbeat is silent; the RTT is on screen. Only say something
+    // once a reply has actually gone missing.
+    if (unanswered > 1) {
+        DZ_DEBUG("heartbeat: %d ping(s) unanswered", unanswered - 1);
+    }
     transport_->send(proto::encode(proto::Ping{now_us()}));
 }
 

@@ -20,7 +20,13 @@ find_package(game-activity REQUIRED CONFIG)
 add_library(digitiz_guest SHARED
     App.cpp
     main.cpp
+    input/TouchRouter.cpp
+    net/TcpTransport.cpp
     render/GlContext.cpp
+    render/GridRenderer.cpp
+    render/Shader.cpp
+    render/UiRenderer.cpp
+    ui/SideMenu.cpp
 )
 
 target_include_directories(digitiz_guest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -57,22 +57,20 @@ extern "C" void android_main(android_app* app) {
         android_poll_source* source = nullptr;
         int events = 0;
 
-        // Block only when there is nothing on screen; otherwise keep the frame
-        // loop running so rendering stays live.
-        const int timeout = self->has_focus() ? 0 : -1;
+        // Sleep until something happens when there is nothing to draw; poll
+        // without blocking while visible so the frame loop keeps running.
+        //
+        // The timeout is recomputed every iteration on purpose. Deciding once
+        // and then looping on the poll would block forever the moment the app
+        // lost focus: the command that restores focus arrives inside the loop,
+        // but the stale timeout would keep it waiting for the next event.
+        const int timeout = self->wants_frames() ? 0 : -1;
 
-        while (ALooper_pollOnce(timeout, nullptr, &events,
-                                reinterpret_cast<void**>(&source)) >= 0) {
+        if (ALooper_pollOnce(timeout, nullptr, &events, reinterpret_cast<void**>(&source)) >= 0) {
             if (source != nullptr) {
                 source->process(app, source);
             }
-            if (app->destroyRequested) {
-                break;
-            }
-        }
-
-        if (app->destroyRequested) {
-            break;
+            continue; // drain everything queued before drawing
         }
 
         self->frame();

@@ -44,7 +44,9 @@ echo "== reverse mappings before =="
 
 echo
 echo "== pushing HELLO =="
-"$ADB" push "$tmpdir/hello.bin" "$REMOTE"
+# MSYS_NO_PATHCONV is on for the sake of $REMOTE, so the *local* path has to be
+# converted by hand.
+"$ADB" push "$(cygpath -w "$tmpdir/hello.bin")" "$REMOTE"
 
 echo
 echo "== connecting from the device, holding ${HOLD_SECONDS}s =="

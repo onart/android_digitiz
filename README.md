@@ -23,8 +23,8 @@
 - [x] Phase 1 — `common/` (프로토콜, Framer, 좌표변환, 로그)
 - [x] Phase 2 — 호스트 골격 (ImGui 셸, 화면 정보, 입력 주입, 포인터 파이프라인)
 - [x] Phase 3 — ADB 전송 (reverse 터널, 세션 루프, PING/PONG)
-- [ ] Phase 4 — 게스트 (GameActivity + GLES3)
-- [ ] Phase 5 — 통합
+- [x] Phase 4 — 게스트 (GameActivity + GLES3, 그리드, 핀치, 터치 라우팅, 사이드 메뉴)
+- [ ] Phase 5 — 통합 (지연 측정, 재연결/백그라운드 처리, 세팅 가이드)
 
 ## 실행
 
@@ -71,8 +71,20 @@ Ninja가 어차피 더 빠르고 크로스플랫폼이라 그대로 간다.
 
 ## 빌드 (Android)
 
-Phase 4에서 추가. Android Studio로 `guest/` 를 연다.
-필요 항목은 NDK r27 (`27.3.13750724`), compileSdk 35, minSdk 24.
+```bash
+./tools/guest.sh run      # 빌드 → 설치 → 실행 → 로그 tail
+```
+
+`build` / `install` / `log` 하위 명령도 있다. NDK r27 (`27.3.13750724`),
+compileSdk 35, minSdk 24가 필요하다.
+
+이 스크립트가 존재하는 이유는 이 개발 환경의 함정 두 개 때문이다.
+`JAVA_HOME` 이 emsdk의 Java 8을 가리켜서 Gradle이 거부하고(Android Studio 번들
+JBR 17로 덮어쓴다), Git Bash가 `/data/...` 인자를 Windows 경로로 바꿔버린다.
+
+Android Studio로 열려면 `guest/` 를 프로젝트 루트로 연다. `local.properties` 는
+gitignore 되어 있으므로 각자 만들어야 한다 (`sdk.dir=C:/path/to/Sdk`,
+**백슬래시 금지** — Java Properties가 `\U` 를 유니코드 이스케이프로 읽는다).
 
 ## 레이아웃
 
