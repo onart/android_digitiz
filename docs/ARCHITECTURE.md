@@ -82,15 +82,15 @@ digitiz/
 │  │  ├─ transport/ITransport.hpp
 │  │  ├─ transport/AdbTransport.{hpp,cpp} # TCP 서버 + adb reverse 관리
 │  │  ├─ transport/AdbClient.{hpp,cpp}    # adb 프로세스 실행 / 기기 감시
-│  │  ├─ input/IInputInjector.hpp
+│  │  ├─ input/InputInjector.hpp          # IInputInjector + 팩토리
+│  │  ├─ input/AbsoluteCoord.hpp          # 순수 좌표 정규화 (전수 테스트됨)
 │  │  ├─ input/Win32InputInjector.cpp
 │  │  ├─ input/PointerPipeline.{hpp,cpp}
-│  │  ├─ display/IDisplayInfo.hpp
+│  │  ├─ display/DisplayInfo.hpp          # IDisplayInfo + 팩토리
 │  │  ├─ display/Win32DisplayInfo.cpp
-│  │  └─ ui/{ImGuiShell,LogPanel,StatusPanel}.{hpp,cpp}
-│  ├─ res/digitiz.manifest                # DPI PerMonitorV2
-│  ├─ bin/                                # 번들 adb (플랫폼별)
-│  └─ third_party/                        # imgui, glfw
+│  │  └─ ui/{ImGuiShell.{hpp,cpp}, LogStore.hpp}
+│  ├─ tests/                              # AbsoluteCoord, PointerPipeline
+│  └─ bin/                                # 번들 adb (배포 시 결정)
 ├─ guest/                                 # Android Studio 프로젝트 루트
 │  ├─ settings.gradle.kts
 │  └─ app/
@@ -277,19 +277,30 @@ pc_px      = surface_px / scale + pan
 ## 6. 호스트 입력 주입 (Windows)
 
 `SendInput` + `INPUT_MOUSE`, 플래그 `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE`.
-좌표는 가상 데스크톱 기준 **0..65535 정규화**:
+좌표는 가상 데스크톱 기준 **0..65535 정규화**.
+
+**정규화 공식은 올림 나눗셈이다** (`input/AbsoluteCoord.hpp`):
 
 ```
-nx = MulDiv(x - vx, 65535, vw - 1)
-ny = MulDiv(y - vy, 65535, vh - 1)
+n = ceil(offset * 65536 / extent) = (offset * 65536 + extent - 1) / extent
 ```
+
+Windows는 받은 값을 **절삭**해서 픽셀로 되돌린다 (`pixel = n * extent / 65536`).
+따라서 그 절삭을 통과해 목표 픽셀에 착지하는 최소값을 골라야 한다.
+흔히 쓰이는 `n = v * 65535 / (extent - 1)` 과 반올림 방식은 둘 다 참몫이 정수 바로
+아래에 놓이는 지점에서 **1픽셀 미달**한다.
+
+이건 추측이 아니라 측정 결과다. `digitiz_host --selftest` 로 1920x1080에서
+반올림은 max 1.00 px 오차, 올림은 0.00 px. 이후 21개 해상도의 **모든 픽셀**에 대해
+왕복 항등을 단위 테스트로 고정했다.
 
 | 항목 | 처리 |
 |---|---|
-| DPI | 프로세스를 **PerMonitorV2 DPI aware** 로 선언(매니페스트). 아니면 `GetSystemMetrics`가 논리 픽셀을 돌려줘 좌표가 어긋난다 |
-| 이벤트 순서 | 이동과 버튼을 **하나의 `SendInput` 배열**로 묶어 실제 마우스와 인터리브되지 않게 한다 |
-| UIPI | 관리자 권한 창에는 주입 불가. 호스트를 승격 실행해야 함 (M1은 문서화만) |
+| DPI | `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)` 를 창 생성 전에 호출. 아니면 `GetSystemMetrics`가 논리 픽셀을 돌려줘 좌표가 어긋난다. 매니페스트 대신 API 호출을 쓰는 이유는 Ninja 빌드에서 매니페스트 임베딩이 번거롭기 때문 |
+| 이벤트 순서 | 이동과 버튼을 **하나의 `INPUT` 이벤트**로 합친다(플래그 OR). 실제 마우스가 둘 사이에 끼어들 여지 자체가 없어진다 |
+| UIPI | 관리자 권한 창에는 주입 불가. 호스트를 승격 실행해야 함 (M1은 로그로 안내만) |
 | 액션 매핑 | DOWN→`LEFTDOWN`, MOVE→`MOVE`, UP→`LEFTUP`, CANCEL→`LEFTUP` |
+| 범위 밖 좌표 | 가상 데스크톱으로 클램프하고 횟수를 센다 (UI에 노출) |
 
 크로스플랫폼 계획: Linux는 `/dev/uinput` 가상 절대좌표 포인터(X11/Wayland 양쪽 동작),
 macOS는 `CGEventCreateMouseEvent` + `CGEventPost`. M1은 인터페이스만 두고 Windows만 구현.

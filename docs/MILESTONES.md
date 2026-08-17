@@ -37,15 +37,21 @@ ADB 전송으로 확정하면서 **프로젝트-킬러급 리스크는 사라졌
 
 ### Phase 2 — 호스트 골격 (전송 없이 단독 동작)
 
-| # | 작업 | 검증 |
+| # | 작업 | 상태 |
 |---|---|---|
-| 8 | ImGui + GLFW 창, Log 패널, on/off 토글 | 앱이 뜨고 로그가 쌓임 |
-| 9 | `Win32DisplayInfo` — 가상 화면/모니터 열거, **PerMonitorV2 매니페스트** | 멀티모니터에서 rect가 맞는지 |
-| 10 | `Win32InputInjector` — SendInput 절대좌표 | **임시 테스트 버튼("화면 중앙 클릭")으로 단독 검증** |
-| 11 | `PointerPipeline` — POINTER→주입 상태머신 | 잘못된 순서(UP without DOWN) 무시, 세션 종료 시 강제 릴리스 |
+| 8 | ImGui + GLFW 창, Log 패널(스레드 안전), on/off 토글 | ✅ |
+| 9 | `Win32DisplayInfo` — 가상 화면/모니터 열거 + `SetProcessDpiAwarenessContext` | ✅ |
+| 10 | `Win32InputInjector` — SendInput 절대좌표 + 자체 테스트 | ✅ |
+| 11 | `PointerPipeline` — POINTER→주입 상태머신 | ✅ |
 
-작업 10을 단독 검증 가능하게 만드는 게 중요하다. 나중에 "클릭이 안 된다"가
-주입 문제인지 전송 문제인지 즉시 갈라진다.
+작업 10을 단독 검증 가능하게 만든 게 바로 값을 했다. 좌표 정규화 공식이
+1픽셀 틀려 있었고, `--selftest` 의 실측(반올림 1.00 px vs 올림 0.00 px)이
+그걸 잡아냈다. 이후 `AbsoluteCoord.hpp` 로 분리해 21개 해상도의 모든 픽셀에 대해
+왕복 항등을 전수 테스트로 고정했다 (약 45만 assertion).
+
+파이프라인 테스트는 정상 경로가 아니라 **버튼이 눌린 채 남는 모든 경로**를 겨냥한다:
+중복 DOWN, DOWN 없는 UP, 버튼이 어긋난 UP, 스트로크 도중 비활성화, 세션 강제 종료.
+사용자 PC의 마우스가 눌린 채 남는 게 이 프로그램 최악의 실패 모드다.
 
 ### Phase 3 — ADB 전송
 

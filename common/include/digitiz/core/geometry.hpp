@@ -27,6 +27,12 @@ struct Recti {
     std::int32_t h = 0;
 
     Vec2 center() const noexcept { return {x + w / 2.0, y + h / 2.0}; }
+
+    bool contains(std::int32_t px, std::int32_t py) const noexcept {
+        return px >= x && py >= y && px < x + w && py < y + h;
+    }
+
+    bool operator==(const Recti&) const noexcept = default;
 };
 
 // surface = (pc - pan) * scale

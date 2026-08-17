@@ -21,10 +21,25 @@
 
 - [x] Phase 0 — 리포/툴체인
 - [x] Phase 1 — `common/` (프로토콜, Framer, 좌표변환, 로그)
-- [ ] Phase 2 — 호스트 골격 (ImGui 셸, 화면 정보, 입력 주입)
+- [x] Phase 2 — 호스트 골격 (ImGui 셸, 화면 정보, 입력 주입, 포인터 파이프라인)
 - [ ] Phase 3 — ADB 전송
 - [ ] Phase 4 — 게스트 (GameActivity + GLES3)
 - [ ] Phase 5 — 통합
+
+## 실행
+
+```bash
+./build/debug/host/digitiz_host.exe
+```
+
+전송 계층 없이도 동작한다. 창에는 주입 on/off 토글, 모니터 목록, 파이프라인 통계,
+콘솔이 있고 **Self-test** 섹션에서 폰 없이 입력 주입을 검증할 수 있다.
+
+좌표 정확도 검사는 헤드리스로도 돌아간다 (커서를 25지점 훑고 원위치, 클릭 없음):
+
+```bash
+./build/debug/host/digitiz_host.exe --selftest
+```
 
 ## 빌드 (PC)
 
