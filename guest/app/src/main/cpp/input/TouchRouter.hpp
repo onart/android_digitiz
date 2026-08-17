@@ -36,6 +36,10 @@ public:
     bool stroke_active() const noexcept { return stroke_active_; }
     bool view_gesture_active() const noexcept { return gesture_active_; }
 
+    // True once the user has pinched or panned. Until then the view is still
+    // whatever was auto-framed, and is free to be re-framed on a rotation.
+    bool view_adjusted_by_user() const noexcept { return view_adjusted_; }
+
     // Milestone 2 hooks: throttle in time and space to smooth drawn curves.
     // Zero means "send everything", which is the milestone 1 behaviour.
     void set_min_interval_us(std::uint64_t us) noexcept { min_interval_us_ = us; }
@@ -56,6 +60,7 @@ private:
 
     bool stroke_active_ = false;
     bool gesture_active_ = false;
+    bool view_adjusted_ = false;
     // Set once a gesture starts and cleared only when every finger is up, so
     // lifting one finger from a pinch does not suddenly start drawing.
     bool suppress_until_release_ = false;

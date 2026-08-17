@@ -96,10 +96,20 @@ void App::on_command(std::int32_t cmd) {
         break;
 
     case APP_CMD_WINDOW_RESIZED:
-    case APP_CMD_CONFIG_CHANGED:
+    case APP_CMD_CONFIG_CHANGED: {
+        const int was_w = gl_.width();
+        const int was_h = gl_.height();
         gl_.refresh_size();
         menu_.layout(gl_.width(), gl_.height(), density_);
+
+        // A rotation changes how much of the desktop fits. Re-frame it, unless
+        // the user has already pinched or panned — then the view is theirs.
+        const bool resized = gl_.width() != was_w || gl_.height() != was_h;
+        if (resized && !router_.view_adjusted_by_user()) {
+            fit_view_to_desktop();
+        }
         break;
+    }
 
     case APP_CMD_GAINED_FOCUS:
         has_focus_ = true;

@@ -15,11 +15,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Digitiz">
 
+        <!-- screenOrientation: the PC desktop is landscape, so a landscape
+             surface fits far more of it on screen. sensorLandscape rather than
+             landscape so the phone can be picked up either way round.
+             configChanges keeps the activity alive across the rotation, which
+             matters because the native side owns the GL surface. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:screenOrientation="fullUser"
+            android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|screenLayout|uiMode|density|smallestScreenSize"
             android:theme="@style/Theme.Digitiz">
 

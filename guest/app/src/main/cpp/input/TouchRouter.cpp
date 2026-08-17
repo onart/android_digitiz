@@ -184,6 +184,10 @@ void TouchRouter::update_gesture(const GameActivityMotionEvent& event) {
         view_->zoom_about(centroid, spread / gesture_spread_);
     }
 
+    // From here on the view belongs to the user, and a rotation must not
+    // silently undo what they set up.
+    view_adjusted_ = true;
+
     gesture_centroid_ = centroid;
     gesture_spread_ = spread;
 }
