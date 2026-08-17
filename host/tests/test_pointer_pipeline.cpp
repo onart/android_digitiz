@@ -235,6 +235,90 @@ TEST_CASE("end_session is safe with nothing held") {
     CHECK(inj.release_all_count == 1);
 }
 
+// A 1920x1080 primary with a shorter 1280x1024 monitor beside it. The virtual
+// bounding box is 3200x1080, so the strip below the second screen is inside
+// the box but on no display — the case a bounds check would get wrong.
+namespace {
+
+bool two_monitor_layout(std::int32_t x, std::int32_t y) {
+    const bool primary = x >= 0 && x < 1920 && y >= 0 && y < 1080;
+    const bool second = x >= 1920 && x < 3200 && y >= 0 && y < 1024;
+    return primary || second;
+}
+
+} // namespace
+
+TEST_CASE("a DOWN on no display is ignored rather than clamped") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+    pipe.set_screen_test(&two_monitor_layout);
+    pipe.set_enabled(true);
+
+    // Inside the virtual bounding box, below the shorter second monitor.
+    pipe.handle(ev(proto::PointerAction::Down, 2500, 1050));
+
+    CHECK(inj.calls.empty());
+    CHECK(pipe.stats().dropped_off_screen == 1);
+    CHECK_FALSE(pipe.stroke_active());
+}
+
+TEST_CASE("a stroke survives crossing the dead corner between monitors") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+    pipe.set_screen_test(&two_monitor_layout);
+    pipe.set_enabled(true);
+
+    pipe.handle(ev(proto::PointerAction::Down, 1000, 1050)); // on the primary
+    pipe.handle(ev(proto::PointerAction::Move, 2500, 1050)); // in the dead strip
+    pipe.handle(ev(proto::PointerAction::Move, 2500, 500));  // on the second
+    pipe.handle(ev(proto::PointerAction::Up, 2500, 500));
+
+    REQUIRE(inj.calls.size() == 3);
+    CHECK(inj.calls[0] == "down LEFT 1000,1050");
+    CHECK(inj.calls[1] == "move 2500,500"); // the dead point never moved it
+    CHECK(inj.calls[2] == "up LEFT 2500,500");
+    CHECK(pipe.stats().dropped_off_screen == 1);
+}
+
+TEST_CASE("an UP off-screen still releases") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+    pipe.set_screen_test(&two_monitor_layout);
+    pipe.set_enabled(true);
+
+    pipe.handle(ev(proto::PointerAction::Down, 100, 100));
+    pipe.handle(ev(proto::PointerAction::Up, 2500, 1050)); // nowhere
+
+    REQUIRE(inj.calls.size() == 2);
+    CHECK(inj.calls[1] == "up LEFT 2500,1050");
+    CHECK_FALSE(inj.any_button_down());
+    CHECK_FALSE(pipe.stroke_active());
+}
+
+TEST_CASE("a CANCEL off-screen still releases") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+    pipe.set_screen_test(&two_monitor_layout);
+    pipe.set_enabled(true);
+
+    pipe.handle(ev(proto::PointerAction::Down, 100, 100));
+    pipe.handle(ev(proto::PointerAction::Cancel, 3199, 1079));
+
+    CHECK_FALSE(inj.any_button_down());
+    CHECK_FALSE(pipe.stroke_active());
+}
+
+TEST_CASE("without a screen test nothing is dropped") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+    pipe.set_enabled(true);
+
+    pipe.handle(ev(proto::PointerAction::Down, -99999, 99999));
+
+    REQUIRE(inj.calls.size() == 1);
+    CHECK(pipe.stats().dropped_off_screen == 0);
+}
+
 TEST_CASE("a failed injection is counted, not silently swallowed") {
     FakeInjector inj;
     PointerPipeline pipe(inj);

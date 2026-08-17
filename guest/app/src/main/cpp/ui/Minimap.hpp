@@ -10,6 +10,8 @@
 // Deliberately does NOT consume touch. On a drawing surface a region that
 // silently swallows strokes is worse than one that is slightly obscured.
 
+#include <span>
+
 #include <digitiz/core/geometry.hpp>
 
 #include "render/UiRenderer.hpp"
@@ -25,8 +27,11 @@ public:
     bool visible(const core::ViewTransform& view, int surface_w, int surface_h,
                  core::Recti desktop) const;
 
+    // `desktop` is the bounding box the map is drawn against; `monitors` are
+    // the real screens laid out inside it, so a gap between them is visible
+    // here too rather than reading as one continuous surface.
     void draw(UiRenderer& ui, const core::ViewTransform& view, int surface_w, int surface_h,
-              core::Recti desktop, float density) const;
+              core::Recti desktop, std::span<const core::Recti> monitors, float density) const;
 
 private:
     bool enabled_ = true;

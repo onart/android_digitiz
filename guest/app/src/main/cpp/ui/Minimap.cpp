@@ -81,7 +81,8 @@ bool Minimap::visible(const core::ViewTransform& view, int surface_w, int surfac
 }
 
 void Minimap::draw(UiRenderer& ui, const core::ViewTransform& view, int surface_w, int surface_h,
-                   core::Recti desktop, float density) const {
+                   core::Recti desktop, std::span<const core::Recti> monitors,
+                   float density) const {
     if (!visible(view, surface_w, surface_h, desktop)) {
         return;
     }
@@ -95,10 +96,23 @@ void Minimap::draw(UiRenderer& ui, const core::ViewTransform& view, int surface_
                          layout.frame.w + 8.0f * density, layout.frame.h + 8.0f * density},
                     radius + 2.0f * density, Color{0.05f, 0.055f, 0.07f, 0.72f});
 
-    // The desktop.
-    ui.rounded_rect(layout.frame, radius, Color{0.13f, 0.145f, 0.175f, 0.85f});
-    ui.rounded_rect_outline(layout.frame, radius, 1.5f * density,
-                            Color{0.55f, 0.60f, 0.70f, 0.85f});
+    // Each screen, placed inside the bounding box. Drawing them separately
+    // rather than filling the box keeps any dead corner between monitors
+    // visible — that is exactly where a touch would do nothing.
+    const auto place = [&](core::Recti r) {
+        const float sx = layout.frame.w / static_cast<float>(desktop.w);
+        const float sy = layout.frame.h / static_cast<float>(desktop.h);
+        return Rect{layout.frame.x + static_cast<float>(r.x - desktop.x) * sx,
+                    layout.frame.y + static_cast<float>(r.y - desktop.y) * sy,
+                    static_cast<float>(r.w) * sx, static_cast<float>(r.h) * sy};
+    };
+
+    for (const core::Recti& m : monitors) {
+        const Rect cell = place(m);
+        ui.rounded_rect(cell, radius, Color{0.13f, 0.145f, 0.175f, 0.9f});
+        ui.rounded_rect_outline(cell, radius, 1.5f * density,
+                                Color{0.55f, 0.60f, 0.70f, 0.85f});
+    }
 
     // The part of it currently on screen.
     ui.rounded_rect(layout.window, radius * 0.5f, Color{0.95f, 0.72f, 0.30f, 0.22f});

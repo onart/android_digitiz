@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdint>
 #include <mutex>
+#include <vector>
 
 #include <game-activity/native_app_glue/android_native_app_glue.h>
 
@@ -58,6 +59,7 @@ private:
 
     void send_hello();
     void fit_view_to_desktop();
+    bool pc_point_on_screen(core::Vec2 pc) const;
 
     android_app* app_;
     GlContext gl_;
@@ -78,6 +80,9 @@ private:
     // Written by the network thread, applied on the render thread.
     mutable std::mutex pending_mutex_;
     core::Recti desktop_{0, 0, 1920, 1080};
+    // The screens themselves. Input is accepted on their union, which is not
+    // the same as `desktop_` once monitors differ in size or alignment.
+    std::vector<core::Recti> monitors_{core::Recti{0, 0, 1920, 1080}};
     bool host_enabled_ = false;
     bool link_up_ = false;
     bool view_needs_fit_ = false;

@@ -27,6 +27,22 @@ struct DisplayLayout {
     std::vector<MonitorInfo> monitors;
 
     bool operator==(const DisplayLayout&) const = default;
+
+    // True when the point is on an actual screen. Deliberately not a test
+    // against virtual_bounds: two monitors of different heights leave a corner
+    // inside the bounding box that belongs to no display, and injecting there
+    // just slides the cursor to whichever edge Windows picks.
+    bool on_a_screen(std::int32_t x, std::int32_t y) const {
+        if (monitors.empty()) {
+            return virtual_bounds.contains(x, y);
+        }
+        for (const MonitorInfo& m : monitors) {
+            if (m.bounds.contains(x, y)) {
+                return true;
+            }
+        }
+        return false;
+    }
 };
 
 class IDisplayInfo {

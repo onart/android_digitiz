@@ -94,6 +94,13 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
             break;
         }
 
+        // Nothing on the PC is under this point, so there is nothing to press.
+        // Silently ignoring it beats clamping to the nearest screen edge,
+        // which would jump the cursor somewhere the user never touched.
+        if (!lands_on_screen(p)) {
+            break;
+        }
+
         stroke_active_ = true;
         stroke_pointer_id_ = event.pointers[0].id;
         last_sent_ = p;
@@ -138,6 +145,13 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
                 break;
             }
 
+            // Dragging off the edge holds the cursor at the last real position
+            // rather than ending the stroke, so coming back continues the same
+            // line instead of starting a new one.
+            if (!lands_on_screen(p)) {
+                break;
+            }
+
             last_sent_ = p;
             last_sent_us_ = t_us;
             emit(proto::PointerAction::Move, p, t_us);
@@ -172,7 +186,10 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
             const std::int32_t index = pointer_index_of(event.action);
             const core::Vec2 p =
                 pointer_pos(event, static_cast<std::uint32_t>(index >= 0 ? index : 0));
-            emit(proto::PointerAction::Up, p, t_us);
+            // Releasing off-screen still has to release: fall back to the last
+            // point that was on a screen so the host never keeps the button
+            // held, and never releases somewhere the cursor never was.
+            emit(proto::PointerAction::Up, lands_on_screen(p) ? p : last_sent_, t_us);
         }
         stroke_active_ = false;
         gesture_active_ = false;
@@ -223,6 +240,15 @@ void TouchRouter::update_gesture(const GameActivityMotionEvent& event, std::int3
 
     gesture_centroid_ = centroid;
     gesture_spread_ = spread;
+}
+
+bool TouchRouter::lands_on_screen(core::Vec2 surface) const {
+    // Without a monitor list yet, allow everything: the host clamps, and
+    // blocking input before the handshake would look like a dead app.
+    if (!on_screen_) {
+        return true;
+    }
+    return on_screen_(view_->to_pc(surface));
 }
 
 void TouchRouter::emit(proto::PointerAction action, core::Vec2 surface, std::uint64_t t_us) {

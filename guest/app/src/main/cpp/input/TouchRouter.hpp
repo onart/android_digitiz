@@ -61,15 +61,26 @@ public:
     // menu does not also draw on the PC.
     void set_ui_hit_test(std::function<bool(core::Vec2)> hit) { ui_hit_ = std::move(hit); }
 
+    // Answers whether a PC-space point actually lands on a screen. The union
+    // of the monitors, not the bounding box: two monitors of different heights
+    // leave a corner inside the box that belongs to neither, and a touch there
+    // has nowhere to go.
+    void set_pc_point_test(std::function<bool(core::Vec2)> on_screen) {
+        on_screen_ = std::move(on_screen);
+    }
+
 private:
     void emit(proto::PointerAction action, core::Vec2 surface, std::uint64_t t_us);
     // `exclude` is the index of a pointer that is lifting and must be ignored.
     void begin_gesture(const GameActivityMotionEvent& event, std::int32_t exclude = -1);
     void update_gesture(const GameActivityMotionEvent& event, std::int32_t exclude = -1);
 
+    bool lands_on_screen(core::Vec2 surface) const;
+
     core::ViewTransform* view_;
     PointerSink sink_;
     std::function<bool(core::Vec2)> ui_hit_;
+    std::function<bool(core::Vec2)> on_screen_;
 
     InputMode mode_ = InputMode::Draw;
     bool stroke_active_ = false;

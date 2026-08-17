@@ -7,11 +7,19 @@
 // anti-aliasing at any zoom and makes the level-of-detail switch a single
 // log-scale step, with no geometry to rebuild when the user pinches.
 
+#include <span>
+
 #include <GLES3/gl3.h>
 
 #include <digitiz/core/geometry.hpp>
 
 namespace digitiz::guest {
+
+// The shader draws each monitor separately rather than one bounding box,
+// because the bounding box is not where input is accepted: two monitors of
+// different heights leave a corner inside the box that belongs to neither.
+// Showing the real shape is what makes "why did my touch do nothing" obvious.
+inline constexpr int kMaxDrawnMonitors = 8;
 
 class GridRenderer {
 public:
@@ -19,7 +27,7 @@ public:
     void release();
 
     void draw(const core::ViewTransform& view, int surface_w, int surface_h,
-              core::Recti desktop, bool injection_enabled, bool linked);
+              std::span<const core::Recti> monitors, bool injection_enabled, bool linked);
 
 private:
     GLuint program_ = 0;
@@ -29,7 +37,8 @@ private:
     GLint u_scale_ = -1;
     GLint u_pan_ = -1;
     GLint u_minor_step_ = -1;
-    GLint u_desktop_ = -1;
+    GLint u_monitor_count_ = -1;
+    GLint u_monitors_ = -1;
     GLint u_accent_ = -1;
 };
 

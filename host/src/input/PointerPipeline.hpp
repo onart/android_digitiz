@@ -8,6 +8,7 @@
 // failure mode that actually hurts the user is a button stuck down on their PC.
 
 #include <cstdint>
+#include <functional>
 
 #include <digitiz/proto/messages.hpp>
 
@@ -23,7 +24,14 @@ public:
         std::uint64_t dropped_disabled = 0;
         std::uint64_t protocol_errors = 0; // duplicate DOWN, UP with no DOWN, ...
         std::uint64_t inject_failures = 0;
+        std::uint64_t dropped_off_screen = 0;
     };
+
+    // Points that land on no display are ignored rather than clamped. The
+    // guest filters these too, but it is not trusted to: a stale monitor list
+    // on its side must not move the user's cursor.
+    using ScreenTest = std::function<bool(std::int32_t, std::int32_t)>;
+    void set_screen_test(ScreenTest test) { on_screen_ = std::move(test); }
 
     explicit PointerPipeline(IInputInjector& injector) : injector_(&injector) {}
 
@@ -48,8 +56,10 @@ private:
     void inject_move(std::int32_t x, std::int32_t y);
     void inject_button(proto::MouseButton b, bool down, std::int32_t x, std::int32_t y);
     void release_stroke();
+    bool on_screen(std::int32_t x, std::int32_t y) const;
 
     IInputInjector* injector_;
+    ScreenTest on_screen_;
     bool enabled_ = false;
     bool down_ = false;
     proto::MouseButton held_ = proto::MouseButton::Left;

@@ -24,6 +24,16 @@ void PointerPipeline::handle(const proto::Pointer& p) {
         return;
     }
 
+    // UP and CANCEL are always honoured wherever they land: refusing to
+    // release is how a button gets stuck on the user's desktop.
+    const bool needs_screen =
+        p.action == proto::PointerAction::Down || p.action == proto::PointerAction::Move ||
+        p.action == proto::PointerAction::Hover;
+    if (needs_screen && !on_screen(p.x, p.y)) {
+        ++stats_.dropped_off_screen;
+        return;
+    }
+
     last_x_ = p.x;
     last_y_ = p.y;
 
@@ -96,6 +106,12 @@ void PointerPipeline::inject_button(proto::MouseButton b, bool down, std::int32_
     } else {
         ++stats_.inject_failures;
     }
+}
+
+bool PointerPipeline::on_screen(std::int32_t x, std::int32_t y) const {
+    // No test configured means no display information yet; let it through and
+    // rely on the injector's clamp rather than blocking everything.
+    return !on_screen_ || on_screen_(x, y);
 }
 
 void PointerPipeline::release_stroke() {

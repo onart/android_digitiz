@@ -107,6 +107,9 @@ private:
     std::atomic<bool> session_active_{false};
     std::chrono::steady_clock::time_point last_ping_{};
 
+    // The layout is written by the UI thread and read by the transport thread
+    // on every pointer event, to decide whether the point is on a screen.
+    mutable std::mutex layout_mutex_;
     DisplayLayout layout_;
     std::chrono::steady_clock::time_point last_layout_query_{};
 

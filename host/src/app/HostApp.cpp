@@ -60,6 +60,10 @@ bool HostApp::init() {
     }
 
     pipeline_ = std::make_unique<PointerPipeline>(*injector_);
+    pipeline_->set_screen_test([this](std::int32_t x, std::int32_t y) {
+        std::lock_guard lock(layout_mutex_);
+        return layout_.on_a_screen(x, y);
+    });
 
     refresh_layout(true);
     DZ_INFO("host ready");
@@ -350,7 +354,10 @@ void HostApp::refresh_layout(bool force) {
         return;
     }
 
-    layout_ = std::move(fresh);
+    {
+        std::lock_guard lock(layout_mutex_);
+        layout_ = std::move(fresh);
+    }
     injector_->set_virtual_bounds(layout_.virtual_bounds);
 
     const core::Recti& v = layout_.virtual_bounds;
@@ -549,8 +556,10 @@ void HostApp::draw_status_panel() {
 
         ImGui::Text("received %llu   injected %llu", static_cast<unsigned long long>(s.received),
                     static_cast<unsigned long long>(s.injected));
-        ImGui::Text("dropped (off) %llu   protocol errors %llu   inject failures %llu",
+        ImGui::Text("dropped (off) %llu   off-screen %llu   protocol errors %llu   "
+                    "inject failures %llu",
                     static_cast<unsigned long long>(s.dropped_disabled),
+                    static_cast<unsigned long long>(s.dropped_off_screen),
                     static_cast<unsigned long long>(s.protocol_errors),
                     static_cast<unsigned long long>(s.inject_failures));
         ImGui::Text("stroke: %s   clamped coords: %llu", stroke ? "ACTIVE" : "idle",

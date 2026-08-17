@@ -1,5 +1,7 @@
 #include "render/GridRenderer.hpp"
 
+#include <algorithm>
+
 #include "render/Shader.hpp"
 
 #include <digitiz/core/log.hpp>
@@ -19,12 +21,15 @@ void main() {
 constexpr const char* kFragmentSrc = R"(#version 300 es
 precision highp float;
 
-uniform vec2  uViewport;   // surface pixels
-uniform float uScale;      // surface px per PC px
-uniform vec2  uPan;        // PC px at the surface origin
-uniform float uMinorStep;  // PC px between minor lines
-uniform vec4  uDesktop;    // PC px: x, y, w, h
-uniform vec3  uAccent;     // grid tint, shifts with host state
+#define MAX_MONITORS 8
+
+uniform vec2  uViewport;                  // surface pixels
+uniform float uScale;                     // surface px per PC px
+uniform vec2  uPan;                       // PC px at the surface origin
+uniform float uMinorStep;                 // PC px between minor lines
+uniform int   uMonitorCount;
+uniform vec4  uMonitors[MAX_MONITORS];    // PC px: x, y, w, h
+uniform vec3  uAccent;                    // grid tint, shifts with host state
 
 out vec4 fragColor;
 
@@ -35,20 +40,32 @@ float lineAlpha(float pc, float step, float halfWidth) {
     return 1.0 - smoothstep(halfWidth - 0.75, halfWidth + 0.75, d);
 }
 
+float sdRect(vec2 p, vec4 r) {
+    vec2 half_size = r.zw * 0.5;
+    vec2 q = abs(p - (r.xy + half_size)) - half_size;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+}
+
 void main() {
     // gl_FragCoord has a bottom-left origin; the view transform is top-left.
     vec2 surface = vec2(gl_FragCoord.x, uViewport.y - gl_FragCoord.y);
     vec2 pc = surface / uScale + uPan;
 
+    // Nearest monitor edge. Negative inside a monitor, so the union of the
+    // screens is exactly where this is below zero — which is also exactly
+    // where touches are accepted.
+    float best = 1.0e9;
+    for (int i = 0; i < MAX_MONITORS; ++i) {
+        if (i >= uMonitorCount) {
+            break;
+        }
+        best = min(best, sdRect(pc, uMonitors[i]));
+    }
+    float sd = best * uScale;
+
     vec3 col = vec3(0.043, 0.047, 0.059);
 
-    // Signed distance to the desktop rectangle, in surface pixels.
-    vec2 half_size = uDesktop.zw * 0.5;
-    vec2 center = uDesktop.xy + half_size;
-    vec2 q = abs(pc - center) - half_size;
-    float sd = (length(max(q, 0.0)) + min(max(q.x, q.y), 0.0)) * uScale;
-
-    // The area that actually maps to the PC screen reads brighter.
+    // Area that actually maps to a screen reads brighter.
     col = mix(col, vec3(0.078, 0.086, 0.105), 1.0 - smoothstep(-1.0, 1.0, sd));
 
     float minor = max(lineAlpha(pc.x, uMinorStep, 0.5),
@@ -56,10 +73,15 @@ void main() {
     float major = max(lineAlpha(pc.x, uMinorStep * 5.0, 0.85),
                       lineAlpha(pc.y, uMinorStep * 5.0, 0.85));
 
-    col = mix(col, uAccent * 0.55, minor * 0.45);
-    col = mix(col, uAccent, major * 0.7);
+    // Outside the screens the grid is dimmed: a visible reminder that a touch
+    // there goes nowhere.
+    float live = 1.0 - smoothstep(-1.0, 1.0, sd);
+    float grid_gain = mix(0.35, 1.0, live);
 
-    // Desktop outline last so it stays readable over the grid.
+    col = mix(col, uAccent * 0.55, minor * 0.45 * grid_gain);
+    col = mix(col, uAccent, major * 0.7 * grid_gain);
+
+    // Screen outlines last so they stay readable over the grid.
     float border = 1.0 - smoothstep(1.0, 2.5, abs(sd));
     col = mix(col, uAccent * 1.35, border * 0.9);
 
@@ -82,7 +104,8 @@ bool GridRenderer::init() {
     u_scale_ = glGetUniformLocation(program_, "uScale");
     u_pan_ = glGetUniformLocation(program_, "uPan");
     u_minor_step_ = glGetUniformLocation(program_, "uMinorStep");
-    u_desktop_ = glGetUniformLocation(program_, "uDesktop");
+    u_monitor_count_ = glGetUniformLocation(program_, "uMonitorCount");
+    u_monitors_ = glGetUniformLocation(program_, "uMonitors");
     u_accent_ = glGetUniformLocation(program_, "uAccent");
     return true;
 }
@@ -99,8 +122,9 @@ void GridRenderer::release() {
 }
 
 void GridRenderer::draw(const core::ViewTransform& view, int surface_w, int surface_h,
-                        core::Recti desktop, bool injection_enabled, bool linked) {
-    if (program_ == 0) {
+                        std::span<const core::Recti> monitors, bool injection_enabled,
+                        bool linked) {
+    if (program_ == 0 || monitors.empty()) {
         return;
     }
 
@@ -129,8 +153,19 @@ void GridRenderer::draw(const core::ViewTransform& view, int surface_w, int surf
     glUniform1f(u_scale_, static_cast<float>(scale));
     glUniform2f(u_pan_, static_cast<float>(pan.x), static_cast<float>(pan.y));
     glUniform1f(u_minor_step_, static_cast<float>(step));
-    glUniform4f(u_desktop_, static_cast<float>(desktop.x), static_cast<float>(desktop.y),
-                static_cast<float>(desktop.w), static_cast<float>(desktop.h));
+
+    const int count =
+        static_cast<int>(std::min<std::size_t>(monitors.size(), kMaxDrawnMonitors));
+    float packed[kMaxDrawnMonitors * 4] = {};
+    for (int i = 0; i < count; ++i) {
+        packed[i * 4 + 0] = static_cast<float>(monitors[static_cast<std::size_t>(i)].x);
+        packed[i * 4 + 1] = static_cast<float>(monitors[static_cast<std::size_t>(i)].y);
+        packed[i * 4 + 2] = static_cast<float>(monitors[static_cast<std::size_t>(i)].w);
+        packed[i * 4 + 3] = static_cast<float>(monitors[static_cast<std::size_t>(i)].h);
+    }
+    glUniform1i(u_monitor_count_, count);
+    glUniform4fv(u_monitors_, count, packed);
+
     glUniform3fv(u_accent_, 1, accent);
 
     glDrawArrays(GL_TRIANGLES, 0, 3);

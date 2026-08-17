@@ -1,5 +1,7 @@
 #include "App.hpp"
 
+#include <cmath>
+
 #include <GLES3/gl3.h>
 #include <android/configuration.h>
 
@@ -23,6 +25,7 @@ App::App(android_app* app)
       router_(view_, [this](const proto::Pointer& p) { link_.send(proto::encode(p)); }) {
 
     router_.set_ui_hit_test([this](core::Vec2 p) { return menu_.hit_test(p); });
+    router_.set_pc_point_test([this](core::Vec2 pc) { return pc_point_on_screen(pc); });
 
     link_.set_handlers(
         [this](proto::MsgType type, std::span<const std::byte> payload) {
@@ -193,6 +196,19 @@ void App::apply_pending() {
     }
 }
 
+bool App::pc_point_on_screen(core::Vec2 pc) const {
+    const auto x = static_cast<std::int32_t>(std::lround(pc.x));
+    const auto y = static_cast<std::int32_t>(std::lround(pc.y));
+
+    std::lock_guard lock(pending_mutex_);
+    for (const core::Recti& m : monitors_) {
+        if (m.contains(x, y)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void App::fit_view_to_desktop() {
     if (gl_.width() <= 0 || gl_.height() <= 0) {
         return;
@@ -215,20 +231,22 @@ void App::fit_view_to_desktop() {
 
 void App::render() {
     core::Recti desktop;
+    std::vector<core::Recti> monitors;
     bool enabled = false;
     bool linked = false;
     {
         std::lock_guard lock(pending_mutex_);
         desktop = desktop_;
+        monitors = monitors_;
         enabled = host_enabled_;
         linked = link_up_;
     }
 
     glViewport(0, 0, gl_.width(), gl_.height());
-    grid_.draw(view_, gl_.width(), gl_.height(), desktop, enabled, linked);
+    grid_.draw(view_, gl_.width(), gl_.height(), monitors, enabled, linked);
 
     ui_.begin(gl_.width(), gl_.height());
-    minimap_.draw(ui_, view_, gl_.width(), gl_.height(), desktop, density_);
+    minimap_.draw(ui_, view_, gl_.width(), gl_.height(), desktop, monitors, density_);
     menu_.draw(ui_);
     ui_.end();
 }
@@ -280,6 +298,17 @@ void App::on_message(proto::MsgType type, std::span<const std::byte> payload) {
 
         const core::Recti fresh{ack.vx, ack.vy, ack.vw, ack.vh};
 
+        std::vector<core::Recti> screens;
+        screens.reserve(ack.monitors.size());
+        for (const proto::Monitor& m : ack.monitors) {
+            screens.push_back(core::Recti{m.x, m.y, m.w, m.h});
+        }
+        // A host that reports no monitors still has a desktop; treat the whole
+        // bounding box as live rather than rejecting every touch.
+        if (screens.empty()) {
+            screens.push_back(fresh);
+        }
+
         std::lock_guard lock(pending_mutex_);
         // Re-frame only when the desktop actually changed, so reconnecting to
         // the same PC leaves the user's view where they put it.
@@ -287,6 +316,7 @@ void App::on_message(proto::MsgType type, std::span<const std::byte> payload) {
             view_needs_fit_ = true;
         }
         desktop_ = fresh;
+        monitors_ = std::move(screens);
         break;
     }
 
