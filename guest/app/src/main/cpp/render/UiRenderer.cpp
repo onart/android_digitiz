@@ -32,6 +32,7 @@ precision highp float;
 
 uniform highp vec4  uRect;
 uniform float uRadius;
+uniform float uThickness;   // 0 fills the shape; otherwise an inward outline
 uniform vec4  uColor;
 
 in highp vec2 vLocal;
@@ -42,7 +43,12 @@ void main() {
     vec2 q = abs(vLocal - half_size) - (half_size - uRadius);
     float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uRadius;
 
+    // Inside the shape sd is negative, so an outline of thickness t is the
+    // band -t <= sd <= 0: the outer edge fades in, the inner edge fades out.
     float alpha = 1.0 - smoothstep(-0.75, 0.75, sd);
+    if (uThickness > 0.0) {
+        alpha *= smoothstep(-uThickness - 0.75, -uThickness + 0.75, sd);
+    }
     if (alpha <= 0.0) {
         discard;
     }
@@ -63,6 +69,7 @@ bool UiRenderer::init() {
     u_viewport_ = glGetUniformLocation(program_, "uViewport");
     u_rect_ = glGetUniformLocation(program_, "uRect");
     u_radius_ = glGetUniformLocation(program_, "uRadius");
+    u_thickness_ = glGetUniformLocation(program_, "uThickness");
     u_color_ = glGetUniformLocation(program_, "uColor");
     return true;
 }
@@ -96,6 +103,14 @@ void UiRenderer::end() {
 }
 
 void UiRenderer::rounded_rect(Rect rect, float radius, Color fill) {
+    draw_shape(rect, radius, 0.0f, fill);
+}
+
+void UiRenderer::rounded_rect_outline(Rect rect, float radius, float thickness, Color stroke) {
+    draw_shape(rect, radius, thickness > 0.0f ? thickness : 1.0f, stroke);
+}
+
+void UiRenderer::draw_shape(Rect rect, float radius, float thickness, Color color) {
     if (program_ == 0 || rect.w <= 0.0f || rect.h <= 0.0f) {
         return;
     }
@@ -107,7 +122,8 @@ void UiRenderer::rounded_rect(Rect rect, float radius, Color fill) {
 
     glUniform4f(u_rect_, rect.x, rect.y, rect.w, rect.h);
     glUniform1f(u_radius_, radius);
-    glUniform4f(u_color_, fill.r, fill.g, fill.b, fill.a);
+    glUniform1f(u_thickness_, thickness);
+    glUniform4f(u_color_, color.r, color.g, color.b, color.a);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 

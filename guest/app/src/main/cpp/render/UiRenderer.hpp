@@ -39,13 +39,20 @@ public:
 
     void rounded_rect(Rect rect, float radius, Color fill);
 
+    // Outline drawn inward from the edge, so the shape never grows past its
+    // rect. `thickness` is in surface pixels.
+    void rounded_rect_outline(Rect rect, float radius, float thickness, Color stroke);
+
 private:
+    void draw_shape(Rect rect, float radius, float thickness, Color color);
+
     GLuint program_ = 0;
     GLuint vao_ = 0;
 
     GLint u_viewport_ = -1;
     GLint u_rect_ = -1;
     GLint u_radius_ = -1;
+    GLint u_thickness_ = -1;
     GLint u_color_ = -1;
 
     int surface_w_ = 0;

@@ -19,27 +19,37 @@ core::Vec2 pointer_pos(const GameActivityMotionEvent& event, std::uint32_t index
     };
 }
 
-core::Vec2 centroid_of(const GameActivityMotionEvent& event) {
+// `exclude` skips the pointer that is lifting: on ACTION_POINTER_UP it is
+// still in the array, and counting it would make the view jump at the moment
+// a finger leaves.
+core::Vec2 centroid_of(const GameActivityMotionEvent& event, std::int32_t exclude) {
     core::Vec2 sum{};
+    std::uint32_t n = 0;
     for (std::uint32_t i = 0; i < event.pointerCount; ++i) {
+        if (static_cast<std::int32_t>(i) == exclude) {
+            continue;
+        }
         sum = sum + pointer_pos(event, i);
+        ++n;
     }
-    const double n = static_cast<double>(event.pointerCount);
-    return n > 0.0 ? sum / n : sum;
+    return n > 0 ? sum / static_cast<double>(n) : sum;
 }
 
 // Mean distance from the centroid. Works for any finger count, unlike the
-// usual two-finger distance.
-double spread_of(const GameActivityMotionEvent& event, core::Vec2 centroid) {
-    if (event.pointerCount < 2) {
-        return 0.0;
-    }
+// usual two-finger distance, and is 0 for a single finger so panning with one
+// thumb does not accidentally zoom.
+double spread_of(const GameActivityMotionEvent& event, core::Vec2 centroid, std::int32_t exclude) {
     double total = 0.0;
+    std::uint32_t n = 0;
     for (std::uint32_t i = 0; i < event.pointerCount; ++i) {
+        if (static_cast<std::int32_t>(i) == exclude) {
+            continue;
+        }
         const core::Vec2 d = pointer_pos(event, i) - centroid;
         total += std::sqrt(d.x * d.x + d.y * d.y);
+        ++n;
     }
-    return total / static_cast<double>(event.pointerCount);
+    return n >= 2 ? total / static_cast<double>(n) : 0.0;
 }
 
 std::int32_t pointer_index_of(std::int32_t action) {
@@ -48,6 +58,17 @@ std::int32_t pointer_index_of(std::int32_t action) {
 }
 
 } // namespace
+
+void TouchRouter::set_mode(InputMode mode) {
+    if (mode_ == mode) {
+        return;
+    }
+    // Leaving Draw with a finger down would strand the button on the host.
+    cancel_stroke();
+    mode_ = mode;
+    gesture_active_ = false;
+    DZ_INFO("input mode: %s", mode == InputMode::Draw ? "draw" : "pan");
+}
 
 void TouchRouter::handle(const GameActivityMotionEvent& event) {
     const std::int32_t action = event.action & AMOTION_EVENT_ACTION_MASK;
@@ -62,10 +83,15 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     case AMOTION_EVENT_ACTION_DOWN: {
         const core::Vec2 p = pointer_pos(event, 0);
 
-        // A widget swallowed it; do not also draw on the PC.
+        // A widget swallowed it. No stroke is opened, so every later MOVE for
+        // this finger falls through to nothing and nothing reaches the PC.
         if (ui_hit_ && ui_hit_(p)) {
-            suppress_until_release_ = true;
             return;
+        }
+
+        if (mode_ == InputMode::Pan) {
+            begin_gesture(event);
+            break;
         }
 
         stroke_active_ = true;
@@ -83,13 +109,12 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
             stroke_active_ = false;
             stroke_pointer_id_ = -1;
         }
-        suppress_until_release_ = true;
         begin_gesture(event);
         break;
     }
 
     case AMOTION_EVENT_ACTION_MOVE: {
-        if (gesture_active_ && event.pointerCount >= 2) {
+        if (gesture_active_) {
             update_gesture(event);
             break;
         }
@@ -122,12 +147,22 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     }
 
     case AMOTION_EVENT_ACTION_POINTER_UP: {
-        // Back down to one finger, but do not resume drawing with it: the user
-        // is finishing a pinch, not starting a stroke.
+        const std::int32_t lifted = pointer_index_of(event.action);
+
+        if (mode_ == InputMode::Pan) {
+            // Every finger pans here, so keep going with whatever is left.
+            begin_gesture(event, lifted);
+            break;
+        }
+
+        // In Draw mode, dropping back to one finger ends the gesture but does
+        // not resume drawing: the user is finishing a pinch, not starting a
+        // stroke. Nothing extra is needed for that — the stroke was cancelled
+        // when the second finger landed, and only ACTION_DOWN opens a new one.
         if (event.pointerCount <= 2) {
             gesture_active_ = false;
         } else {
-            begin_gesture(event); // re-baseline without the lifted finger
+            begin_gesture(event, lifted);
         }
         break;
     }
@@ -141,7 +176,6 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
         }
         stroke_active_ = false;
         gesture_active_ = false;
-        suppress_until_release_ = false;
         stroke_pointer_id_ = -1;
         break;
     }
@@ -149,7 +183,6 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     case AMOTION_EVENT_ACTION_CANCEL: {
         cancel_stroke();
         gesture_active_ = false;
-        suppress_until_release_ = false;
         break;
     }
 
@@ -167,15 +200,15 @@ void TouchRouter::cancel_stroke() {
     stroke_pointer_id_ = -1;
 }
 
-void TouchRouter::begin_gesture(const GameActivityMotionEvent& event) {
+void TouchRouter::begin_gesture(const GameActivityMotionEvent& event, std::int32_t exclude) {
     gesture_active_ = true;
-    gesture_centroid_ = centroid_of(event);
-    gesture_spread_ = spread_of(event, gesture_centroid_);
+    gesture_centroid_ = centroid_of(event, exclude);
+    gesture_spread_ = spread_of(event, gesture_centroid_, exclude);
 }
 
-void TouchRouter::update_gesture(const GameActivityMotionEvent& event) {
-    const core::Vec2 centroid = centroid_of(event);
-    const double spread = spread_of(event, centroid);
+void TouchRouter::update_gesture(const GameActivityMotionEvent& event, std::int32_t exclude) {
+    const core::Vec2 centroid = centroid_of(event, exclude);
+    const double spread = spread_of(event, centroid, exclude);
 
     // Pan first, so the zoom anchor is evaluated in the already-panned frame.
     view_->pan_by(centroid - gesture_centroid_);

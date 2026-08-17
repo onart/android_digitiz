@@ -26,6 +26,7 @@ add_library(digitiz_guest SHARED
     render/GridRenderer.cpp
     render/Shader.cpp
     render/UiRenderer.cpp
+    ui/Minimap.cpp
     ui/SideMenu.cpp
 )
 

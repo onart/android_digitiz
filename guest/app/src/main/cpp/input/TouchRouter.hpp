@@ -20,6 +20,14 @@ struct GameActivityMotionEvent;
 
 namespace digitiz::guest {
 
+enum class InputMode : std::uint8_t {
+    // One finger draws on the PC, two or more move the view.
+    Draw,
+    // Every finger moves the view and nothing is sent. Lets the view be placed
+    // precisely with one thumb, without a stray stroke landing on the PC.
+    Pan,
+};
+
 class TouchRouter {
 public:
     using PointerSink = std::function<void(const proto::Pointer&)>;
@@ -28,6 +36,10 @@ public:
         : view_(&view), sink_(std::move(sink)) {}
 
     void handle(const GameActivityMotionEvent& event);
+
+    // Switching away from Draw mid-stroke releases on the host first.
+    void set_mode(InputMode mode);
+    InputMode mode() const noexcept { return mode_; }
 
     // Drops any stroke in progress, telling the host to release. Call when the
     // link goes down or the app loses focus.
@@ -51,19 +63,18 @@ public:
 
 private:
     void emit(proto::PointerAction action, core::Vec2 surface, std::uint64_t t_us);
-    void begin_gesture(const GameActivityMotionEvent& event);
-    void update_gesture(const GameActivityMotionEvent& event);
+    // `exclude` is the index of a pointer that is lifting and must be ignored.
+    void begin_gesture(const GameActivityMotionEvent& event, std::int32_t exclude = -1);
+    void update_gesture(const GameActivityMotionEvent& event, std::int32_t exclude = -1);
 
     core::ViewTransform* view_;
     PointerSink sink_;
     std::function<bool(core::Vec2)> ui_hit_;
 
+    InputMode mode_ = InputMode::Draw;
     bool stroke_active_ = false;
     bool gesture_active_ = false;
     bool view_adjusted_ = false;
-    // Set once a gesture starts and cleared only when every finger is up, so
-    // lifting one finger from a pinch does not suddenly start drawing.
-    bool suppress_until_release_ = false;
     std::int32_t stroke_pointer_id_ = -1;
 
     core::Vec2 last_sent_{};

@@ -17,6 +17,7 @@
 #include "render/GlContext.hpp"
 #include "render/GridRenderer.hpp"
 #include "render/UiRenderer.hpp"
+#include "ui/Minimap.hpp"
 #include "ui/SideMenu.hpp"
 
 namespace digitiz::guest {
@@ -63,6 +64,7 @@ private:
     GridRenderer grid_;
     UiRenderer ui_;
     SideMenu menu_;
+    Minimap minimap_;
     TcpTransport link_;
 
     core::ViewTransform view_;

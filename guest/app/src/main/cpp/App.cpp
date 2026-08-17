@@ -141,6 +141,12 @@ void App::frame() {
 
     apply_pending();
     drain_input();
+
+    // The menu owns the switch; the router owns the behaviour.
+    if (menu_.take_mode_change()) {
+        router_.set_mode(menu_.mode());
+    }
+
     menu_.advance(dt);
     render();
     gl_.swap();
@@ -222,6 +228,7 @@ void App::render() {
     grid_.draw(view_, gl_.width(), gl_.height(), desktop, enabled, linked);
 
     ui_.begin(gl_.width(), gl_.height());
+    minimap_.draw(ui_, view_, gl_.width(), gl_.height(), desktop, density_);
     menu_.draw(ui_);
     ui_.end();
 }
