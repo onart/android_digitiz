@@ -30,13 +30,23 @@ public:
     // True once, when hit_test changed the mode; the caller pushes it onward.
     bool take_mode_change() noexcept;
 
+    // Whether the PC may start this app by itself. Seeded from persisted
+    // settings; take_auto_launch_change() reports a user flip so the caller
+    // can write it back.
+    void set_auto_launch(bool on) noexcept { auto_launch_ = on; }
+    bool auto_launch() const noexcept { return auto_launch_; }
+    bool take_auto_launch_change() noexcept;
+
 private:
     Rect handle_rect() const;
     Rect panel_rect() const;
     Rect mode_cell(int index) const; // 0 = draw, 1 = pan
+    Rect auto_launch_row() const;
+    Rect auto_launch_switch() const;
 
     void draw_draw_glyph(UiRenderer& ui, Rect cell, float alpha) const;
     void draw_pan_glyph(UiRenderer& ui, Rect cell, float alpha) const;
+    void draw_auto_launch_row(UiRenderer& ui, float alpha) const;
 
     int surface_w_ = 0;
     int surface_h_ = 0;
@@ -52,6 +62,9 @@ private:
 
     InputMode mode_ = InputMode::Draw;
     bool mode_changed_ = false;
+
+    bool auto_launch_ = true;
+    bool auto_launch_changed_ = false;
 };
 
 } // namespace digitiz::guest

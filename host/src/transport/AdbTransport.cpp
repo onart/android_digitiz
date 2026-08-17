@@ -240,6 +240,10 @@ bool AdbTransport::serve_one_session() {
     if (launched_serial_ != serial) {
         if (adb_.is_app_running(serial, kGuestPackage)) {
             DZ_DEBUG("guest already running; waiting for it to connect");
+        } else if (!adb_.read_guest_flag(serial, kGuestSettingsPath, "auto_launch", true)) {
+            // The phone owns this decision, and it is off. Keep the tunnel up
+            // so the app connects the moment the user opens it themselves.
+            DZ_INFO("guest has auto-launch disabled; waiting for it to be opened");
         } else {
             adb_.start_activity(serial, kGuestComponent);
         }

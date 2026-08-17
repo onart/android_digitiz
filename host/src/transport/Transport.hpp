@@ -21,6 +21,13 @@ inline constexpr int kDevicePort = 27183;
 inline constexpr const char* kGuestPackage = "com.onart.digitiz";
 inline constexpr const char* kGuestComponent = "com.onart.digitiz/.MainActivity";
 
+// The guest keeps its settings here rather than the host keeping a copy. The
+// host needs to know whether it may launch the app *while the app is not
+// running*, so it cannot ask over the link — but adb can read the file. Must
+// match kSettingsFileName on the guest.
+inline constexpr const char* kGuestSettingsPath =
+    "/sdcard/Android/data/com.onart.digitiz/files/settings.txt";
+
 enum class TransportState : std::uint8_t {
     Stopped,
     NoAdb,

@@ -13,6 +13,7 @@
 #include <digitiz/core/geometry.hpp>
 #include <digitiz/proto/messages.hpp>
 
+#include "core/Settings.hpp"
 #include "input/TouchRouter.hpp"
 #include "net/TcpTransport.hpp"
 #include "render/GlContext.hpp"
@@ -68,6 +69,7 @@ private:
     SideMenu menu_;
     Minimap minimap_;
     TcpTransport link_;
+    Settings settings_;
 
     core::ViewTransform view_;
     TouchRouter router_;

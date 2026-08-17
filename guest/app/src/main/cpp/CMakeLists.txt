@@ -20,6 +20,7 @@ find_package(game-activity REQUIRED CONFIG)
 add_library(digitiz_guest SHARED
     App.cpp
     main.cpp
+    core/Settings.cpp
     input/TouchRouter.cpp
     net/TcpTransport.cpp
     render/GlContext.cpp

@@ -46,6 +46,12 @@ bool SideMenu::take_mode_change() noexcept {
     return changed;
 }
 
+bool SideMenu::take_auto_launch_change() noexcept {
+    const bool changed = auto_launch_changed_;
+    auto_launch_changed_ = false;
+    return changed;
+}
+
 Rect SideMenu::handle_rect() const {
     const float slide = ease_out(progress_) * panel_w_;
     return Rect{
@@ -77,6 +83,21 @@ Rect SideMenu::mode_cell(int index) const {
     return Rect{panel.x + pad + static_cast<float>(index) * (width + gap), top, width, height};
 }
 
+Rect SideMenu::auto_launch_row() const {
+    const Rect panel = panel_rect();
+    const Rect cells = mode_cell(0);
+    const float pad = 16.0f * density_;
+    return Rect{panel.x + pad, cells.y + cells.h + 18.0f * density_, panel.w - pad * 2.0f,
+                52.0f * density_};
+}
+
+Rect SideMenu::auto_launch_switch() const {
+    const Rect row = auto_launch_row();
+    const float w = 52.0f * density_;
+    const float h = 30.0f * density_;
+    return Rect{row.x + row.w - w - 12.0f * density_, row.y + (row.h - h) * 0.5f, w, h};
+}
+
 bool SideMenu::hit_test(core::Vec2 p) {
     // Generous touch slop around the handle: it is a thin tab at the screen
     // edge, and missing it by two pixels would draw a stray dot on the PC.
@@ -106,6 +127,13 @@ bool SideMenu::hit_test(core::Vec2 p) {
                     mode_changed_ = true;
                 }
                 break;
+            }
+
+            // The whole row is the target, not just the switch: a 52dp switch
+            // is a small thing to hit with a thumb.
+            if (auto_launch_row().contains(p)) {
+                auto_launch_ = !auto_launch_;
+                auto_launch_changed_ = true;
             }
         }
         return true; // swallow every tap inside the drawer
@@ -141,6 +169,50 @@ void SideMenu::draw_pan_glyph(UiRenderer& ui, Rect cell, float alpha) const {
     ui.rounded_rect(Rect{cx - bar * 0.5f, cy - len * 0.5f, bar, len}, bar * 0.5f, c);
 }
 
+// "The PC may open this app by itself": a phone with something arriving at it,
+// plus a switch. There is no text rendering yet, so the pictogram carries it;
+// milestone 2's settings screen can label it properly.
+void SideMenu::draw_auto_launch_row(UiRenderer& ui, float alpha) const {
+    const Rect row = auto_launch_row();
+    ui.rounded_rect(row, 12.0f * density_, Color{0.16f, 0.17f, 0.21f, 0.9f * alpha});
+
+    // Left to right: something travels from the PC and lands in the phone.
+    // Order matters — phone first would read as the app sending, which is
+    // backwards.
+    const float bar_h = 3.0f * density_;
+    const float bar_w = 16.0f * density_;
+    const float head = 9.0f * density_;
+    const Color arrow = auto_launch_ ? Color{0.55f, 0.90f, 0.72f, alpha}
+                                     : Color{0.42f, 0.45f, 0.52f, alpha};
+
+    const float bar_x = row.x + 12.0f * density_;
+    ui.rounded_rect(Rect{bar_x, row.y + (row.h - bar_h) * 0.5f, bar_w, bar_h}, bar_h * 0.5f,
+                    arrow);
+    ui.rounded_rect(Rect{bar_x + bar_w - head * 0.5f, row.y + (row.h - head) * 0.5f, head, head},
+                    head * 0.5f, arrow);
+
+    // Phone outline, receiving it.
+    const float ph = 30.0f * density_;
+    const float pw = 18.0f * density_;
+    const Rect phone{bar_x + bar_w + head * 0.5f + 5.0f * density_, row.y + (row.h - ph) * 0.5f,
+                     pw, ph};
+    ui.rounded_rect_outline(phone, 4.0f * density_, 1.5f * density_,
+                            auto_launch_ ? Color{0.80f, 0.86f, 0.92f, alpha}
+                                         : Color{0.50f, 0.53f, 0.60f, alpha});
+
+    // Switch.
+    const Rect sw = auto_launch_switch();
+    ui.rounded_rect(sw, sw.h * 0.5f,
+                    auto_launch_ ? Color{kAccent.r, kAccent.g, kAccent.b, 0.95f * alpha}
+                                 : Color{0.24f, 0.25f, 0.30f, 0.95f * alpha});
+
+    const float knob = sw.h - 6.0f * density_;
+    const float knob_x = auto_launch_ ? sw.x + sw.w - knob - 3.0f * density_
+                                      : sw.x + 3.0f * density_;
+    ui.rounded_rect(Rect{knob_x, sw.y + 3.0f * density_, knob, knob}, knob * 0.5f,
+                    Color{0.96f, 0.97f, 1.0f, alpha});
+}
+
 void SideMenu::draw(UiRenderer& ui) const {
     if (progress_ > 0.01f) {
         const Rect panel = panel_rect();
@@ -167,6 +239,7 @@ void SideMenu::draw(UiRenderer& ui) const {
 
         draw_draw_glyph(ui, mode_cell(0), progress_);
         draw_pan_glyph(ui, mode_cell(1), progress_);
+        draw_auto_launch_row(ui, progress_);
     }
 
     const Rect handle = handle_rect();

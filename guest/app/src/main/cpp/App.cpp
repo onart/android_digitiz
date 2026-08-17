@@ -24,6 +24,11 @@ App::App(android_app* app)
     : app_(app),
       router_(view_, [this](const proto::Pointer& p) { link_.send(proto::encode(p)); }) {
 
+    // GameActivity gives native code the external data path directly, so the
+    // settings file needs no JNI.
+    settings_.load(app->activity != nullptr ? app->activity->externalDataPath : nullptr);
+    menu_.set_auto_launch(settings_.auto_launch());
+
     router_.set_ui_hit_test([this](core::Vec2 p) { return menu_.hit_test(p); });
     router_.set_pc_point_test([this](core::Vec2 pc) { return pc_point_on_screen(pc); });
 
@@ -148,6 +153,11 @@ void App::frame() {
     // The menu owns the switch; the router owns the behaviour.
     if (menu_.take_mode_change()) {
         router_.set_mode(menu_.mode());
+    }
+    if (menu_.take_auto_launch_change()) {
+        // Written straight to disk: the host reads this file while the app is
+        // not running, so it has to be current before the app closes.
+        settings_.set_auto_launch(menu_.auto_launch());
     }
 
     menu_.advance(dt);

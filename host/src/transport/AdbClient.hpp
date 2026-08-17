@@ -40,6 +40,12 @@ public:
     // only drag it to the foreground, which is rude if the user is elsewhere.
     bool is_app_running(const std::string& serial, const std::string& package);
 
+    // Reads a key from the guest's settings file on the device. Returns
+    // `fallback` when the file or the key is missing, which covers a fresh
+    // install where the app has not written anything yet.
+    bool read_guest_flag(const std::string& serial, const std::string& path,
+                         const std::string& key, bool fallback);
+
 private:
     ProcessResult run(const std::vector<std::string>& args, int timeout_ms = 10000);
 

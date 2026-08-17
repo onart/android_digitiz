@@ -203,6 +203,31 @@ bool AdbClient::is_app_running(const std::string& serial, const std::string& pac
     return !trim(r.output).empty();
 }
 
+bool AdbClient::read_guest_flag(const std::string& serial, const std::string& path,
+                                const std::string& key, bool fallback) {
+    const ProcessResult r = run({"-s", serial, "shell", "cat", path}, 6000);
+    if (!r.launched) {
+        return fallback;
+    }
+
+    std::istringstream stream(r.output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        line = trim(line);
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        const std::size_t eq = line.find('=');
+        if (eq == std::string::npos) {
+            continue;
+        }
+        if (trim(line.substr(0, eq)) == key) {
+            return trim(line.substr(eq + 1)) != "0";
+        }
+    }
+    return fallback;
+}
+
 bool AdbClient::start_activity(const std::string& serial, const std::string& component) {
     const ProcessResult r = run({"-s", serial, "shell", "am", "start", "-n", component}, 10000);
 
