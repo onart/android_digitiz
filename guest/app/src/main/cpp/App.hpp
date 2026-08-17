@@ -35,6 +35,10 @@ public:
 
     bool has_focus() const noexcept { return has_focus_; }
 
+    // Mirrors a log line to the host console so both sides share one timeline.
+    // Safe to call from any thread, including from inside the log sink itself.
+    void forward_log(core::LogLevel level, std::string_view text);
+
     // True when there is a surface to draw into. Focus is deliberately not
     // part of this: a system dialog on top should not stop the frame loop,
     // only stop input from reaching us.
@@ -76,6 +80,13 @@ private:
     bool link_up_ = false;
     bool view_needs_fit_ = false;
     bool heartbeat_seen_ = false;
+    // The link dropping has to cancel any stroke, but that must happen on the
+    // render thread — TouchRouter belongs to it.
+    bool stroke_cancel_pending_ = false;
+
+    // Set once the view has been framed. Backgrounding and returning must not
+    // throw away a pan and zoom the user set up by hand.
+    bool view_fitted_ = false;
 };
 
 } // namespace digitiz::guest

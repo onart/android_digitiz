@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "app/LatencyStats.hpp"
 #include "display/DisplayInfo.hpp"
 #include "input/InputInjector.hpp"
 #include "input/PointerPipeline.hpp"
@@ -94,6 +95,14 @@ private:
     bool hello_ack_pending_ = false;
     double rtt_ms_ = -1.0;
     int unanswered_pings_ = 0;
+
+    // Guest timestamps are on the phone's monotonic clock, which shares no
+    // epoch with ours, so they have to be translated before they mean anything.
+    ClockSync clock_;
+    // Finger event on the phone -> message decoded here.
+    LatencyStats link_latency_;
+    // Time spent inside the injector, measured on this side only.
+    LatencyStats inject_latency_;
 
     std::atomic<bool> session_active_{false};
     std::chrono::steady_clock::time_point last_ping_{};

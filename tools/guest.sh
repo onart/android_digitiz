@@ -17,6 +17,12 @@
 
 set -euo pipefail
 
+# Every path this script hands to adb is a host path that Git Bash should
+# translate. A caller that exported MSYS_NO_PATHCONV for its own device-path
+# work would otherwise break `adb install` here, and adb reports that as a
+# plain "failed to stat" that is easy to scroll past.
+unset MSYS_NO_PATHCONV
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GUEST="$HERE/guest"
 
@@ -45,6 +51,22 @@ build() {
 install() {
     build "$@"
     "$ADB" install -r "$APK"
+
+    # adb reports success loudly and staleness not at all, so confirm the APK
+    # on the device is byte-for-byte the one just built. Chasing a phantom bug
+    # in code that was never installed is an expensive afternoon.
+    local remote local_sum remote_sum
+    remote="$("$ADB" shell pm path "$PKG" | tr -d '\r' | sed 's/package://')"
+    local_sum="$(md5sum "$APK" | cut -d' ' -f1)"
+    remote_sum="$("$ADB" shell md5sum "$remote" | tr -d '\r' | cut -d' ' -f1)"
+
+    if [ "$local_sum" != "$remote_sum" ]; then
+        echo "installed APK does not match the build output" >&2
+        echo "  local  $local_sum  $APK" >&2
+        echo "  device $remote_sum  $remote" >&2
+        exit 1
+    fi
+    echo "verified on device: $local_sum"
 }
 
 case "${1:-run}" in

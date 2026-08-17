@@ -41,6 +41,26 @@ void App::start_link() {
     link_.start(kHostPort);
 }
 
+void App::forward_log(core::LogLevel level, std::string_view text) {
+    // Debug and trace stay on the device; the host console is for things the
+    // user could plausibly need to see without logcat.
+    if (level < core::LogLevel::Info) {
+        return;
+    }
+    if (link_.state() != LinkState::Connected) {
+        return;
+    }
+
+    // send() failing logs a warning, which would come straight back here.
+    static thread_local bool forwarding = false;
+    if (forwarding) {
+        return;
+    }
+    forwarding = true;
+    link_.send(proto::encode(proto::LogMessage{level, std::string(text)}));
+    forwarding = false;
+}
+
 void App::on_command(std::int32_t cmd) {
     switch (cmd) {
     case APP_CMD_INIT_WINDOW:
@@ -58,7 +78,11 @@ void App::on_command(std::int32_t cmd) {
                 }
             }
             menu_.layout(gl_.width(), gl_.height(), density_);
-            fit_view_to_desktop();
+            // Only frame the view the first time. Coming back from the home
+            // screen must not undo a pan and zoom the user set up.
+            if (!view_fitted_) {
+                fit_view_to_desktop();
+            }
             start_link();
         }
         break;
@@ -131,12 +155,22 @@ void App::drain_input() {
 
 void App::apply_pending() {
     bool fit = false;
+    bool cancel = false;
     {
         std::lock_guard lock(pending_mutex_);
         if (view_needs_fit_) {
             view_needs_fit_ = false;
             fit = true;
         }
+        if (stroke_cancel_pending_) {
+            stroke_cancel_pending_ = false;
+            cancel = true;
+        }
+    }
+    if (cancel) {
+        // The host already released on its side; this just stops us from
+        // continuing a stroke it has no record of once we reconnect.
+        router_.cancel_stroke();
     }
     if (fit) {
         fit_view_to_desktop();
@@ -149,8 +183,11 @@ void App::fit_view_to_desktop() {
     }
     core::Recti desktop;
     {
+        // view_fitted_ is read by the network thread when deciding whether a
+        // HELLO_ACK should re-frame, so it is set under the same lock.
         std::lock_guard lock(pending_mutex_);
         desktop = desktop_;
+        view_fitted_ = true;
     }
 
     // Leave a margin so the desktop outline is visible rather than flush with
@@ -195,6 +232,7 @@ void App::on_link_down() {
     std::lock_guard lock(pending_mutex_);
     link_up_ = false;
     host_enabled_ = false;
+    stroke_cancel_pending_ = true;
 }
 
 void App::send_hello() {
@@ -205,8 +243,10 @@ void App::send_hello() {
     hello.density = density_;
     hello.device = "Digitiz guest";
     link_.send(proto::encode(hello));
-    DZ_INFO("sent HELLO: %d x %d density %.2f", hello.screen_w, hello.screen_h,
-            static_cast<double>(hello.density));
+    // The reply is the interesting event; this one would just repeat on every
+    // retry while the host is down.
+    DZ_DEBUG("sent HELLO: %d x %d density %.2f", hello.screen_w, hello.screen_h,
+             static_cast<double>(hello.density));
 }
 
 void App::on_message(proto::MsgType type, std::span<const std::byte> payload) {
@@ -221,9 +261,15 @@ void App::on_message(proto::MsgType type, std::span<const std::byte> payload) {
                 proto::to_string(ack.host_os), ack.vw, ack.vh, ack.vx, ack.vy,
                 ack.monitors.size());
 
+        const core::Recti fresh{ack.vx, ack.vy, ack.vw, ack.vh};
+
         std::lock_guard lock(pending_mutex_);
-        desktop_ = core::Recti{ack.vx, ack.vy, ack.vw, ack.vh};
-        view_needs_fit_ = true;
+        // Re-frame only when the desktop actually changed, so reconnecting to
+        // the same PC leaves the user's view where they put it.
+        if (!view_fitted_ || fresh != desktop_) {
+            view_needs_fit_ = true;
+        }
+        desktop_ = fresh;
         break;
     }
 

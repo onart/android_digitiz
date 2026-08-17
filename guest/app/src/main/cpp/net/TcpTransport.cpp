@@ -23,6 +23,22 @@ constexpr int kSelectSliceMs = 250;
 constexpr int kMinBackoffMs = 250;
 constexpr int kMaxBackoffMs = 4000;
 
+// If the host process is killed, adb leaves the tunnel in place and this end
+// never sees a close — the socket simply goes quiet. Without a timeout the
+// guest would sit forever holding a connection to nothing, and would not
+// reconnect when the host came back. The host sends a PING every second, so
+// silence this long means it is gone.
+constexpr int kReceiveTimeoutMs = 5000;
+
+// adb accepts on the device side whether or not anything is listening at the
+// PC end, so connect() succeeds and the socket dies a couple of seconds later.
+// Such a session never really existed and must not reset the backoff, or the
+// guest would spin reconnecting the whole time the host is down.
+//
+// The test is "did the host ever say anything", not a duration: adb's give-up
+// delay lands right on top of any threshold worth picking, whereas a real host
+// answers HELLO within milliseconds and a dead end never sends a byte.
+
 } // namespace
 
 TcpTransport::~TcpTransport() {
@@ -83,10 +99,12 @@ void TcpTransport::run() {
             continue;
         }
 
-        backoff = kMinBackoffMs;
         framer_.reset();
         state_ = LinkState::Connected;
-        DZ_INFO("connected to host through the reverse tunnel");
+        DZ_DEBUG("socket connected through the reverse tunnel");
+
+        const auto started = std::chrono::steady_clock::now();
+        session_saw_data_ = false;
 
         if (on_connect_) {
             on_connect_();
@@ -97,9 +115,26 @@ void TcpTransport::run() {
         if (on_disconnect_) {
             on_disconnect_();
         }
-
         close_socket();
-        DZ_INFO("disconnected from host");
+
+        const auto lived_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::steady_clock::now() - started)
+                                  .count();
+
+        if (session_saw_data_) {
+            DZ_INFO("disconnected from host after %.1f s", static_cast<double>(lived_ms) / 1000.0);
+            backoff = kMinBackoffMs;
+            reported_unreachable_ = false;
+        } else {
+            // Say it once, then keep quiet: the host being off is a normal
+            // state to sit in, not a stream of errors.
+            if (!reported_unreachable_) {
+                reported_unreachable_ = true;
+                DZ_INFO("host is not reachable; retrying quietly in the background");
+            }
+            sleep_interruptibly(backoff);
+            backoff = backoff * 2 < kMaxBackoffMs ? backoff * 2 : kMaxBackoffMs;
+        }
     }
 
     state_ = LinkState::Stopped;
@@ -139,6 +174,7 @@ bool TcpTransport::dial() {
 
 void TcpTransport::session_loop() {
     std::vector<std::byte> buffer(kRecvBufferBytes);
+    auto last_rx = std::chrono::steady_clock::now();
 
     while (running_) {
         int fd = -1;
@@ -166,6 +202,14 @@ void TcpTransport::session_loop() {
             return;
         }
         if (ready == 0) {
+            const auto quiet = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::steady_clock::now() - last_rx)
+                                   .count();
+            if (quiet >= kReceiveTimeoutMs) {
+                DZ_WARN("host silent for %lld ms; assuming it is gone and reconnecting",
+                        static_cast<long long>(quiet));
+                return;
+            }
             continue;
         }
 
@@ -173,6 +217,8 @@ void TcpTransport::session_loop() {
         if (got <= 0) {
             return;
         }
+        last_rx = std::chrono::steady_clock::now();
+        session_saw_data_ = true;
 
         framer_.push({buffer.data(), static_cast<std::size_t>(got)});
         framer_.drain([this](proto::MsgType type, std::uint8_t, std::span<const std::byte> payload) {

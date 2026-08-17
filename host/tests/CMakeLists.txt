@@ -4,6 +4,7 @@
 add_executable(digitiz_host_tests
     main.cpp
     test_absolute_coord.cpp
+    test_latency_stats.cpp
     test_pointer_pipeline.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/PointerPipeline.cpp
 )

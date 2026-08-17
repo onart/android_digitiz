@@ -1,5 +1,6 @@
 #include "input/TouchRouter.hpp"
 
+#include <chrono>
 #include <cmath>
 
 #include <android/input.h>
@@ -50,7 +51,12 @@ std::int32_t pointer_index_of(std::int32_t action) {
 
 void TouchRouter::handle(const GameActivityMotionEvent& event) {
     const std::int32_t action = event.action & AMOTION_EVENT_ACTION_MASK;
-    const std::uint64_t t_us = static_cast<std::uint64_t>(event.eventTime) / 1000ull;
+
+    // GameActivityMotionEvent::eventTime is in *milliseconds* on the same
+    // monotonic clock as steady_clock, despite the nanosecond units the
+    // underlying AMotionEvent API uses. Measured, not assumed — see the
+    // sanity check in emit().
+    const std::uint64_t t_us = static_cast<std::uint64_t>(event.eventTime) * 1000ull;
 
     switch (action) {
     case AMOTION_EVENT_ACTION_DOWN: {
@@ -185,6 +191,31 @@ void TouchRouter::update_gesture(const GameActivityMotionEvent& event) {
 void TouchRouter::emit(proto::PointerAction action, core::Vec2 surface, std::uint64_t t_us) {
     if (!sink_) {
         return;
+    }
+
+    // The host translates this timestamp onto its own clock using an offset
+    // measured from PONG replies, which are stamped with steady_clock. That is
+    // only meaningful if motion events share that clock and unit, so verify it
+    // once per session instead of trusting the header. Getting the unit wrong
+    // does not fail loudly — latency simply reads as nonsense and gets
+    // discarded — so this check is what makes the mistake visible.
+    static bool clock_checked = false;
+    if (!clock_checked) {
+        clock_checked = true;
+        const auto steady_us = static_cast<std::int64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now().time_since_epoch())
+                .count());
+        const double skew_ms = static_cast<double>(steady_us - static_cast<std::int64_t>(t_us)) /
+                               1000.0;
+        if (skew_ms < -50.0 || skew_ms > 500.0) {
+            DZ_WARN("motion event clock looks wrong: skew %.1f ms (steady %lld us, event %llu us)."
+                    " Latency figures will be discarded.",
+                    skew_ms, static_cast<long long>(steady_us),
+                    static_cast<unsigned long long>(t_us));
+        } else {
+            DZ_INFO("motion event clock agrees with steady_clock, skew %.1f ms", skew_ms);
+        }
     }
     const core::Vec2 pc = view_->to_pc(surface);
 

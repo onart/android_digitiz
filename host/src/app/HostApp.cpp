@@ -104,6 +104,11 @@ void HostApp::on_transport_connect() {
         hello_ack_pending_ = false;
         rtt_ms_ = -1.0;
         unanswered_pings_ = 0;
+        // The phone may have rebooted between sessions, so nothing measured
+        // about its clock carries over.
+        clock_.reset();
+        link_latency_.reset();
+        inject_latency_.reset();
     }
     session_active_ = true;
     last_ping_ = std::chrono::steady_clock::now();
@@ -129,14 +134,50 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
             DZ_WARN("malformed POINTER payload (%zu bytes)", payload.size());
             return;
         }
+        const std::uint64_t arrived_us = now_us();
+
         // Stroke boundaries are logged; MOVE is not, or a single drag would
         // bury everything else. The pipeline counters cover the volume.
         if (p.action != proto::PointerAction::Move) {
             DZ_DEBUG("POINTER %s at (%d, %d)", proto::to_string(p.action), p.x, p.y);
         }
 
-        std::lock_guard lock(pipeline_mutex_);
-        pipeline_->handle(p);
+        // Glass to here: the guest stamps t_us when Android delivered the
+        // touch, so this covers the phone's input pipeline plus the tunnel.
+        {
+            std::lock_guard lock(session_mutex_);
+            if (clock_.ready()) {
+                const double link_ms =
+                    (static_cast<double>(arrived_us) - clock_.to_host_us(p.t_us)) / 1000.0;
+                // A negative or absurd figure means the clock estimate is
+                // stale, not that the event arrived early.
+                if (link_ms >= 0.0 && link_ms < 1000.0) {
+                    link_latency_.add(link_ms);
+                }
+            }
+        }
+
+        const std::uint64_t before_inject = now_us();
+        {
+            std::lock_guard lock(pipeline_mutex_);
+            pipeline_->handle(p);
+        }
+        {
+            std::lock_guard lock(session_mutex_);
+            inject_latency_.add(static_cast<double>(now_us() - before_inject) / 1000.0);
+        }
+
+        // One summary per stroke: fine-grained enough to correlate with how a
+        // particular drag felt, quiet enough to leave on.
+        if (p.action == proto::PointerAction::Up || p.action == proto::PointerAction::Cancel) {
+            std::lock_guard lock(session_mutex_);
+            if (!link_latency_.empty()) {
+                DZ_DEBUG("stroke ended: event-to-host %.1f ms avg, %.1f max (%zu samples); "
+                         "injection %.0f us avg",
+                         link_latency_.average(), link_latency_.max(), link_latency_.size(),
+                         inject_latency_.average() * 1000.0);
+            }
+        }
         break;
     }
 
@@ -172,13 +213,15 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
         if (!proto::decode(payload, pong)) {
             return;
         }
-        const double rtt = static_cast<double>(now_us() - pong.t_send_us) / 1000.0;
+        const std::uint64_t recv_us = now_us();
+        const double rtt = static_cast<double>(recv_us - pong.t_send_us) / 1000.0;
         bool first = false;
         {
             std::lock_guard lock(session_mutex_);
             first = rtt_ms_ < 0.0;
             rtt_ms_ = rtt;
             unanswered_pings_ = 0;
+            clock_.observe(pong.t_send_us, pong.t_reply_us, recv_us);
         }
         if (first) {
             DZ_INFO("heartbeat established, RTT %.2f ms", rtt);
@@ -570,6 +613,31 @@ void HostApp::draw_connection_panel() {
             ImGui::Text("RTT: %.2f ms", rtt_ms_);
         } else if (st.state == TransportState::Connected) {
             ImGui::TextDisabled("RTT: waiting for the first PONG");
+        }
+
+        ImGui::Separator();
+
+        if (link_latency_.empty()) {
+            ImGui::TextDisabled("Latency: draw on the phone to measure");
+        } else {
+            // Max is the number that matters: an occasional slow event is what
+            // the hand notices, not the average.
+            ImGui::Text("Event to host:  %.1f ms avg   %.1f min   %.1f max",
+                        link_latency_.average(), link_latency_.min(), link_latency_.max());
+            ImGui::SetItemTooltip(
+                "From the timestamp Android stamped on the touch to the moment this host decoded "
+                "it: the phone's input delivery plus the USB tunnel.\n"
+                "Does not include touchscreen scan-out, which happens before that timestamp, so "
+                "true finger-to-cursor latency is somewhat higher.");
+        }
+        if (!inject_latency_.empty()) {
+            ImGui::Text("Injection:      %.0f us avg   %.0f us max",
+                        inject_latency_.average() * 1000.0, inject_latency_.max() * 1000.0);
+        }
+        if (clock_.ready()) {
+            ImGui::TextDisabled("clock offset %.1f ms, best RTT %.2f ms",
+                                clock_.offset_us() / 1000.0,
+                                static_cast<double>(clock_.best_rtt_us()) / 1000.0);
         }
     }
 

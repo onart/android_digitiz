@@ -53,6 +53,15 @@ extern "C" void android_main(android_app* app) {
     app->userData = self.get();
     app->onAppCmd = &handle_command;
 
+    // Upgrade the sink now that there is somewhere to forward to. Until this
+    // point logging is logcat-only, which covers construction.
+    digitiz::guest::App* instance = self.get();
+    digitiz::core::set_log_sink([instance](digitiz::core::LogLevel level, std::string_view text) {
+        __android_log_print(android_priority(level), kLogTag, "%.*s",
+                            static_cast<int>(text.size()), text.data());
+        instance->forward_log(level, text);
+    });
+
     while (!app->destroyRequested) {
         android_poll_source* source = nullptr;
         int events = 0;
@@ -77,5 +86,12 @@ extern "C" void android_main(android_app* app) {
     }
 
     DZ_INFO("guest stopping");
+
+    // Drop the forwarding sink before App is destroyed, or a late log line
+    // would reach a dead object.
+    digitiz::core::set_log_sink([](digitiz::core::LogLevel level, std::string_view text) {
+        __android_log_print(android_priority(level), kLogTag, "%.*s",
+                            static_cast<int>(text.size()), text.data());
+    });
     app->userData = nullptr;
 }

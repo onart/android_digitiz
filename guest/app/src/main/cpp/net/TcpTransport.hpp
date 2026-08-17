@@ -64,6 +64,12 @@ private:
 
     std::uint16_t port_ = 0;
     proto::Framer framer_;
+    // Keeps "host is not reachable" to one line per outage instead of one per
+    // retry. Touched only by the network thread.
+    bool reported_unreachable_ = false;
+    // Whether the host said anything at all during this session, which is what
+    // separates a real connection from adb accepting into a void.
+    bool session_saw_data_ = false;
 
     MessageHandler on_message_;
     SessionHandler on_connect_;
