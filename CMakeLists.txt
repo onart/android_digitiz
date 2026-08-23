@@ -29,3 +29,9 @@ add_subdirectory(common)
 if(DIGITIZ_BUILD_HOST AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/host/CMakeLists.txt")
     add_subdirectory(host)
 endif()
+
+# The guest is built by Gradle, not from here. This picks up only the parts of
+# it that are plain C++, so they can be tested without a phone attached.
+if(DIGITIZ_BUILD_TESTS)
+    add_subdirectory(guest/tests)
+endif()

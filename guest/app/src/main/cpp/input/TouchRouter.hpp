@@ -51,6 +51,15 @@ public:
     // link goes down or the app loses focus.
     void cancel_stroke();
 
+    // Lets go of a widget that had claimed the finger, without delivering a
+    // release. A dialog coming to the front takes the touch stream with it,
+    // and the ACTION_UP that would normally end the capture never arrives —
+    // the widget would then still own the next finger to land anywhere. The
+    // widget itself is told separately, because only the caller knows which
+    // one it was.
+    void cancel_ui_capture() noexcept { ui_captured_ = false; }
+    bool ui_captured() const noexcept { return ui_captured_; }
+
     bool stroke_active() const noexcept { return stroke_active_; }
     bool view_gesture_active() const noexcept { return gesture_active_; }
 

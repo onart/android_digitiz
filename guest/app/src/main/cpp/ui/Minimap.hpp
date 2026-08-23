@@ -30,8 +30,11 @@ public:
     // `desktop` is the bounding box the map is drawn against; `monitors` are
     // the real screens laid out inside it, so a gap between them is visible
     // here too rather than reading as one continuous surface.
+    // `inset_x` pushes the map right, for when the custom button strip is
+    // running down the same edge. Left at zero it sits in the corner.
     void draw(UiRenderer& ui, const core::ViewTransform& view, int surface_w, int surface_h,
-              core::Recti desktop, std::span<const core::Recti> monitors, float density) const;
+              core::Recti desktop, std::span<const core::Recti> monitors, float density,
+              float inset_x = 0.0f) const;
 
 private:
     bool enabled_ = true;

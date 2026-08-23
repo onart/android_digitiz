@@ -50,7 +50,7 @@ TCP(및 하위 USB)가 무결성을 보장하므로 실제 손상은 드물다. 
 | `0x21` | `FRAME_INFO` | H→C | M2 (예약) |
 | `0x22` | `FRAME_DATA` | H→C | M2 (예약) |
 | `0x23` | `ACTIVE_WINDOW` | H→C | M2 |
-| `0x24` | `KEY` | C→H | M2 (예약) |
+| `0x24` | `KEY` | C→H | M2 |
 | `0x25` | `WHEEL` | C→H | M2 (예약) |
 | `0x26` | `SMOOTHING` | C→H | M2 (예약) |
 | `0x7F` | `LOG` | 양방향 | M1 |
@@ -173,6 +173,32 @@ PC의 포커스가 다른 프로그램으로 옮겨갈 때마다 전송. 게스�
 거쳐 가는데(작업 표시줄이 실제로 0.1초쯤 포커스를 가져간다) 그대로 흘리면
 전환할 때마다 프리셋이 기본값으로 떨어졌다 돌아온다. 정착 대기는 200 ms.
 
+### `0x24 KEY` (C→H)
+
+```c
+struct Key {              // 20 bytes
+    uint8_t modifiers;    // bit0 Ctrl, bit1 Shift, bit2 Alt, bit3 Meta(Win)
+    uint8_t action;       // 0=Press(눌렀다 뗌), 1=Down, 2=Up
+    uint8_t pad[2];
+    char    key[16];      // 소문자 키 이름, NUL 패딩
+};
+```
+
+게스트의 단축키 버튼이 보낸다. 호스트는 조합키를 누른 채로 키를 입력하고
+반대 순서로 뗀다. 한 번의 `SendInput` 배치로 나가므로 사용자의 실제 입력이
+조합키와 키 사이에 끼어들 수 없다.
+
+**코드가 아니라 이름이 간다.** 가상 키 번호는 호스트 OS의 속성이고 폰이 그걸
+알 이유가 없다. 폰은 사용자가 입력한 것을 저장하고, 호스트가 자기 입력 API가
+원하는 것으로 바꾼다. 리눅스·macOS 호스트가 게스트를 고치지 않고 들어올 수
+있는 것도 그 덕이다.
+
+이름은 `a`~`z`, `0`~`9`, `f1`~`f24`, `numpad0`~`numpad9`, 그리고 `escape` `tab`
+`enter` `space` `backspace` `delete` `insert` `home` `end` `pageup` `pagedown`
+`up` `down` `left` `right` 등의 표에서 찾는다. 모르는 이름은 **비슷한 것으로
+추측하지 않고** 거부하고 호스트 콘솔에 남긴다 — 사용자 PC에서 엉뚱한 키가
+눌리는 것보다 아무것도 안 눌리는 편이 낫다.
+
 ### `0x7F LOG` (양방향)
 
 ```c
@@ -206,7 +232,6 @@ struct ViewportReq {
 // 0x21 FRAME_INFO (H→C) — 프레임 메타. 뒤이어 FRAME_DATA 청크가 온다
 // 0x22 FRAME_DATA (H→C) — {u32 seq; u32 offset; bytes} 로 16 KiB 이하 분할
 
-// 0x24 KEY   (C→H) — 커스텀 버튼의 단축키 전송
 // 0x25 WHEEL (C→H)
 // 0x26 SMOOTHING (C→H) — CR 스플라인 보정 파라미터
 ```

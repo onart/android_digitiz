@@ -113,6 +113,25 @@ void PointerPipeline::handle(const proto::Pointer& p) {
     }
 }
 
+void PointerPipeline::handle(const proto::Key& k) {
+    ++stats_.received;
+
+    if (!enabled_) {
+        ++stats_.dropped_disabled;
+        return;
+    }
+
+    if (!injector_->key(k)) {
+        // The injector has already said why; counted separately from a pointer
+        // failure because the usual cause is different — a key name we do not
+        // know, rather than a window we may not touch.
+        ++stats_.keys_unknown;
+        return;
+    }
+    ++stats_.keys_sent;
+    ++stats_.injected;
+}
+
 void PointerPipeline::end_session() {
     // The next session starts against whatever the cursor is doing then.
     rel_seeded_ = false;

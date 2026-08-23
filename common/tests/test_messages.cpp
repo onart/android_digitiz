@@ -171,6 +171,24 @@ TEST_CASE("ActiveWindow truncates an over-long process name") {
     CHECK(out.process.size() == kProcessNameBytes);
 }
 
+TEST_CASE("Key round-trips a modified shortcut") {
+    Key out;
+    REQUIRE(decode(payload_of(encode(Key{.modifiers = kModCtrl | kModShift,
+                                         .action = KeyAction::Press,
+                                         .key = "s"})),
+                   out));
+    CHECK(out.modifiers == (kModCtrl | kModShift));
+    CHECK(out.action == KeyAction::Press);
+    CHECK(out.key == "s");
+}
+
+TEST_CASE("Key round-trips a named key with no modifiers") {
+    Key out;
+    REQUIRE(decode(payload_of(encode(Key{.key = "escape"})), out));
+    CHECK(out.modifiers == 0);
+    CHECK(out.key == "escape");
+}
+
 TEST_CASE("LogMessage carries a variable-length body") {
     const LogMessage in{.level = core::LogLevel::Warn, .text = "reverse tunnel dropped"};
 

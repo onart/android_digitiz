@@ -14,6 +14,8 @@ namespace {
 constexpr const char* kAutoLaunchKey = "auto_launch";
 constexpr const char* kMinIntervalKey = "min_interval_ms";
 constexpr const char* kMinDistanceKey = "min_distance_dp";
+constexpr const char* kStripVerticalKey = "strip_vertical";
+constexpr const char* kStripExpandedKey = "strip_expanded";
 
 std::string trim(std::string s) {
     const auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
@@ -60,6 +62,10 @@ void Settings::load(const char* external_dir) {
             min_interval_ms_ = std::atoi(value.c_str());
         } else if (key == kMinDistanceKey) {
             min_distance_dp_ = static_cast<float>(std::atof(value.c_str()));
+        } else if (key == kStripVerticalKey) {
+            strip_vertical_ = value != "0";
+        } else if (key == kStripExpandedKey) {
+            strip_expanded_ = value != "0";
         }
     }
 
@@ -77,6 +83,15 @@ void Settings::set_throttle(int interval_ms, float distance_dp) {
     save();
 }
 
+void Settings::set_strip(bool vertical, bool expanded) {
+    if (strip_vertical_ == vertical && strip_expanded_ == expanded) {
+        return;
+    }
+    strip_vertical_ = vertical;
+    strip_expanded_ = expanded;
+    save();
+}
+
 void Settings::set_auto_launch(bool on) {
     if (auto_launch_ == on) {
         return;
@@ -91,8 +106,8 @@ void Settings::save() const {
         return;
     }
 
-    // Written whole every time; the file is two lines and the host may read it
-    // at any moment, so a partial rewrite is not worth the risk.
+    // Written whole every time; the file is a handful of lines and the host
+    // may read it at any moment, so a partial rewrite is not worth the risk.
     std::ofstream out(path_, std::ios::trunc);
     if (!out) {
         DZ_WARN("could not write settings to %s", path_.c_str());
@@ -102,6 +117,8 @@ void Settings::save() const {
     out << kAutoLaunchKey << "=" << (auto_launch_ ? 1 : 0) << "\n";
     out << kMinIntervalKey << "=" << min_interval_ms_ << "\n";
     out << kMinDistanceKey << "=" << min_distance_dp_ << "\n";
+    out << kStripVerticalKey << "=" << (strip_vertical_ ? 1 : 0) << "\n";
+    out << kStripExpandedKey << "=" << (strip_expanded_ ? 1 : 0) << "\n";
 }
 
 } // namespace digitiz::guest

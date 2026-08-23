@@ -4,8 +4,10 @@
 
 #include <algorithm>
 #include <array>
+#include <vector>
 
 #include "input/AbsoluteCoord.hpp"
+#include "input/KeyNames.hpp"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -43,6 +45,52 @@ DWORD button_flag(proto::MouseButton b, bool down) noexcept {
     return 0;
 }
 
+// Modifier bit -> virtual key, in the order they are pressed. Released in
+// reverse, which is what an application watching the key state expects.
+struct ModifierKey {
+    std::uint8_t bit;
+    std::uint16_t vk;
+};
+
+constexpr std::array kModifierKeys{
+    ModifierKey{proto::kModCtrl, VK_CONTROL},
+    ModifierKey{proto::kModShift, VK_SHIFT},
+    ModifierKey{proto::kModAlt, VK_MENU},
+    ModifierKey{proto::kModMeta, VK_LWIN},
+};
+
+// Extended keys need the flag or Windows delivers the numpad twin instead.
+bool is_extended(std::uint16_t vk) noexcept {
+    switch (vk) {
+    case VK_INSERT:
+    case VK_DELETE:
+    case VK_HOME:
+    case VK_END:
+    case VK_PRIOR:
+    case VK_NEXT:
+    case VK_UP:
+    case VK_DOWN:
+    case VK_LEFT:
+    case VK_RIGHT:
+    case VK_DIVIDE:
+    case VK_NUMLOCK:
+    case VK_SNAPSHOT:
+    case VK_RCONTROL:
+    case VK_RMENU:
+        return true;
+    default:
+        return false;
+    }
+}
+
+INPUT key_input(std::uint16_t vk, bool down) noexcept {
+    INPUT in{};
+    in.type = INPUT_KEYBOARD;
+    in.ki.wVk = vk;
+    in.ki.dwFlags = (down ? 0u : KEYEVENTF_KEYUP) | (is_extended(vk) ? KEYEVENTF_EXTENDEDKEY : 0u);
+    return in;
+}
+
 class Win32InputInjector final : public IInputInjector {
 public:
     void set_virtual_bounds(core::Recti bounds) override {
@@ -63,7 +111,78 @@ public:
         return true;
     }
 
+    bool key(const proto::Key& k) override {
+        std::uint16_t vk = 0;
+        if (!key_name_to_code(k.key, vk)) {
+            DZ_WARN("injector: unknown key name \"%s\"", k.key.c_str());
+            return false;
+        }
+
+        // Built as one batch and sent in a single call: SendInput delivers an
+        // array atomically with respect to other threads' input, so nothing of
+        // the user's can land between the modifier and the key.
+        std::vector<INPUT> batch;
+        batch.reserve(kModifierKeys.size() * 2 + 2);
+
+        const bool press_phase = k.action != proto::KeyAction::Up;
+        const bool release_phase = k.action != proto::KeyAction::Down;
+
+        if (press_phase) {
+            for (const ModifierKey& m : kModifierKeys) {
+                if ((k.modifiers & m.bit) != 0) {
+                    batch.push_back(key_input(m.vk, true));
+                }
+            }
+            batch.push_back(key_input(vk, true));
+        }
+        if (release_phase) {
+            batch.push_back(key_input(vk, false));
+            for (auto it = kModifierKeys.rbegin(); it != kModifierKeys.rend(); ++it) {
+                if ((k.modifiers & it->bit) != 0) {
+                    batch.push_back(key_input(it->vk, false));
+                }
+            }
+        }
+
+        if (::SendInput(static_cast<UINT>(batch.size()), batch.data(), sizeof(INPUT)) !=
+            batch.size()) {
+            DZ_ERROR("injector: SendInput failed for key \"%s\" (GetLastError=%lu)",
+                     k.key.c_str(), ::GetLastError());
+            return false;
+        }
+
+        // Only a bare Down leaves anything behind, and that is the one case
+        // release_all() has to be able to undo.
+        if (!release_phase) {
+            held_keys_.push_back(vk);
+            held_mods_ |= k.modifiers;
+        } else {
+            std::erase(held_keys_, vk);
+            if (k.action == proto::KeyAction::Up) {
+                held_mods_ &= static_cast<std::uint8_t>(~k.modifiers);
+            }
+        }
+        return true;
+    }
+
     void release_all() override {
+        for (const std::uint16_t vk : held_keys_) {
+            INPUT in = key_input(vk, false);
+            ::SendInput(1, &in, sizeof(INPUT));
+            DZ_WARN("injector: force-released stuck key 0x%02X", vk);
+        }
+        held_keys_.clear();
+
+        for (auto it = kModifierKeys.rbegin(); it != kModifierKeys.rend(); ++it) {
+            if ((held_mods_ & it->bit) == 0) {
+                continue;
+            }
+            INPUT in = key_input(it->vk, false);
+            ::SendInput(1, &in, sizeof(INPUT));
+            DZ_WARN("injector: force-released stuck modifier 0x%02X", it->vk);
+        }
+        held_mods_ = 0;
+
         for (std::size_t i = 0; i < kButtonCount; ++i) {
             if (!held_[i]) {
                 continue;
@@ -139,6 +258,8 @@ private:
 
     core::Recti bounds_{0, 0, 1, 1};
     std::array<bool, kButtonCount> held_{};
+    std::vector<std::uint16_t> held_keys_;
+    std::uint8_t held_mods_ = 0;
     std::uint64_t clamped_ = 0;
 };
 

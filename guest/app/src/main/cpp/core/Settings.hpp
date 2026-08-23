@@ -34,6 +34,12 @@ public:
     float min_distance_dp() const noexcept { return min_distance_dp_; }
     void set_throttle(int interval_ms, float distance_dp);
 
+    // How the custom button strip is arranged, and whether it is open. Both
+    // are the user's arrangement of their own screen, so they outlive a run.
+    bool strip_vertical() const noexcept { return strip_vertical_; }
+    bool strip_expanded() const noexcept { return strip_expanded_; }
+    void set_strip(bool vertical, bool expanded);
+
     const std::string& path() const noexcept { return path_; }
 
 private:
@@ -43,6 +49,8 @@ private:
     bool auto_launch_ = true;
     int min_interval_ms_ = 0;
     float min_distance_dp_ = 0.0f;
+    bool strip_vertical_ = false;
+    bool strip_expanded_ = false;
 };
 
 } // namespace digitiz::guest

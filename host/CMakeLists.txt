@@ -53,6 +53,7 @@ add_library(digitiz_host_lib STATIC
     src/display/Win32DisplayInfo.cpp
     src/input/PointerPipeline.cpp
     src/input/SplineSmoother.cpp
+    src/input/Win32KeyNames.cpp
     src/input/Win32InputInjector.cpp
     src/platform/Win32ForegroundWatcher.cpp
     src/platform/Win32Process.cpp

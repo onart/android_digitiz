@@ -17,6 +17,7 @@ namespace digitiz::proto {
 
 inline constexpr std::size_t kDeviceNameBytes = 64;
 inline constexpr std::size_t kProcessNameBytes = 64;
+inline constexpr std::size_t kKeyNameBytes = 16;
 
 enum class HostOs : std::uint8_t { Windows = 0, Linux = 1, MacOS = 2 };
 
@@ -124,6 +125,35 @@ struct ActiveWindow {
     std::string process; // wire: kProcessNameBytes, NUL padded
 };
 
+// --- 0x24 KEY (C->H) -------------------------------------------------------
+
+// Key::modifiers
+inline constexpr std::uint8_t kModCtrl = 1u << 0;
+inline constexpr std::uint8_t kModShift = 1u << 1;
+inline constexpr std::uint8_t kModAlt = 1u << 2;
+inline constexpr std::uint8_t kModMeta = 1u << 3; // Windows key / Command
+
+enum class KeyAction : std::uint8_t {
+    Press = 0, // down and up, with the modifiers held around it
+    Down = 1,
+    Up = 2,
+};
+
+// A shortcut fired by a custom button on the guest.
+//
+// The key travels as a name, not a code. Virtual-key numbering is a property
+// of the host OS, and the guest has no business knowing it: the phone stores
+// what the user typed and the host maps it to whatever its own input API
+// wants. It also means a Linux or macOS host slots in without the guest
+// changing at all.
+struct Key {
+    std::uint8_t modifiers = 0;
+    KeyAction action = KeyAction::Press;
+    // Lowercase, no modifiers in it: "a", "f5", "escape", "tab", "left".
+    // wire: kKeyNameBytes, NUL padded.
+    std::string key;
+};
+
 // --- 0x7F LOG (both) -------------------------------------------------------
 
 struct LogMessage {
@@ -142,6 +172,7 @@ std::vector<std::byte> encode(const Pong& m);
 std::vector<std::byte> encode(const Pointer& m);
 std::vector<std::byte> encode(const HostState& m);
 std::vector<std::byte> encode(const ActiveWindow& m);
+std::vector<std::byte> encode(const Key& m);
 std::vector<std::byte> encode(const LogMessage& m);
 
 bool decode(std::span<const std::byte> payload, Hello& out);
@@ -151,6 +182,7 @@ bool decode(std::span<const std::byte> payload, Pong& out);
 bool decode(std::span<const std::byte> payload, Pointer& out);
 bool decode(std::span<const std::byte> payload, HostState& out);
 bool decode(std::span<const std::byte> payload, ActiveWindow& out);
+bool decode(std::span<const std::byte> payload, Key& out);
 bool decode(std::span<const std::byte> payload, LogMessage& out);
 
 } // namespace digitiz::proto

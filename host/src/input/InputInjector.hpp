@@ -28,8 +28,13 @@ public:
     // cannot slip between them and drop the click somewhere else.
     virtual bool button(proto::MouseButton b, bool down, std::int32_t x, std::int32_t y) = 0;
 
-    // Releases anything still held. Must be called when a session ends —
-    // otherwise the user is left with a stuck mouse button.
+    // Sends a keyboard shortcut. Modifiers are held around the key and let go
+    // afterwards, so nothing survives the call.
+    virtual bool key(const proto::Key& k) = 0;
+
+    // Releases anything still held — buttons and keys alike. Must be called
+    // when a session ends, or the user is left with a stuck mouse button or,
+    // worse, a stuck Ctrl.
     virtual void release_all() = 0;
 
     virtual bool any_button_down() const = 0;

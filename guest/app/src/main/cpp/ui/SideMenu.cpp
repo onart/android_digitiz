@@ -58,14 +58,16 @@ bool SideMenu::take_auto_launch_change() noexcept {
     return changed;
 }
 
+bool SideMenu::take_strip_change() noexcept {
+    const bool changed = strip_changed_;
+    strip_changed_ = false;
+    return changed;
+}
+
 bool SideMenu::take_rotate_request() noexcept {
     const bool asked = rotate_requested_;
     rotate_requested_ = false;
     return asked;
-}
-
-void SideMenu::set_active_window(std::string process) {
-    active_process_ = std::move(process);
 }
 
 void SideMenu::set_throttle(int interval_ms, float distance_dp) noexcept {
@@ -151,19 +153,18 @@ Rect SideMenu::panel_rect() const {
 Rect SideMenu::rotate_button() const {
     const Rect panel = panel_rect();
     const float pad = 16.0f * density_;
-    const float w = 104.0f * density_;
+    const float w = 96.0f * density_;
     const float h = 34.0f * density_;
     return Rect{panel.x + panel.w - pad - w, 12.0f * density_, w, h};
 }
 
-// Anchored to the bottom rather than stacked under the sliders: it is a
-// readout, not another setting, and the gap in between says so.
-Rect SideMenu::active_window_row() const {
-    const Rect panel = panel_rect();
-    const float pad = 16.0f * density_;
-    const float h = 40.0f * density_;
-    return Rect{panel.x + pad, static_cast<float>(surface_h_) - h - 14.0f * density_,
-                panel.w - pad * 2.0f, h};
+// Square, glyph only, sharing the header with the rotate button. Neither is a
+// setting the eye needs to find in a list, and the rows below are already
+// within a row's height of the bottom of a 720px screen.
+Rect SideMenu::strip_button() const {
+    const Rect rotate = rotate_button();
+    const float w = 42.0f * density_;
+    return Rect{rotate.x - 8.0f * density_ - w, rotate.y, w, rotate.h};
 }
 
 Rect SideMenu::mode_row() const {
@@ -214,6 +215,9 @@ bool SideMenu::hit_test(core::Vec2 p) {
         if (progress_ > 0.9f) {
             if (rotate_button().contains(p)) {
                 rotate_requested_ = true;
+            } else if (strip_button().contains(p)) {
+                strip_vertical_ = !strip_vertical_;
+                strip_changed_ = true;
             } else if (mode_row().contains(p)) {
                 // Few enough modes that cycling beats a picker.
                 mode_ = next_mode(mode_);
@@ -367,6 +371,22 @@ void SideMenu::draw_rotate_button(UiRenderer& ui, float alpha) const {
     ui.rounded_rect(button, button.h * 0.5f, Color{0.22f, 0.24f, 0.29f, 0.95f * alpha});
 }
 
+// A bar lying the way the strip lies. This one does show its state, because it
+// has one and the strip may well be collapsed out of sight.
+void SideMenu::draw_strip_button(UiRenderer& ui, float alpha) const {
+    const Rect button = strip_button();
+    ui.rounded_rect(button, 10.0f * density_, Color{0.22f, 0.24f, 0.29f, 0.95f * alpha});
+
+    const float length = 20.0f * density_;
+    const float thick = 7.0f * density_;
+    const float cx = button.x + button.w * 0.5f;
+    const float cy = button.y + button.h * 0.5f;
+    const Rect bar = strip_vertical_
+                         ? Rect{cx - thick * 0.5f, cy - length * 0.5f, thick, length}
+                         : Rect{cx - length * 0.5f, cy - thick * 0.5f, length, thick};
+    ui.rounded_rect(bar, 3.0f * density_, Color{kAccent.r, kAccent.g, kAccent.b, alpha});
+}
+
 void SideMenu::drag(core::Vec2 p) {
     if (dragging_slider_ >= 0) {
         // Tracked by x only: the finger wandering off the track vertically
@@ -393,8 +413,6 @@ void SideMenu::load_labels(TextRenderer& text) {
     labels_.pan = text.localized("menu_mode_pan");
     labels_.auto_launch = text.localized("menu_auto_launch");
     labels_.rotate = text.localized("menu_rotate");
-    labels_.active_window = text.localized("menu_active_window");
-    labels_.active_window_none = text.localized("menu_active_window_none");
     labels_.throttle_time = text.localized("menu_throttle_time");
     labels_.throttle_distance = text.localized("menu_throttle_distance");
     labels_.throttle_off = text.localized("menu_throttle_off");
@@ -441,15 +459,6 @@ void SideMenu::draw_labels(TextRenderer& text) const {
               text_size,
               auto_launch_ ? Color{0.90f, 0.93f, 0.97f, a} : Color{0.60f, 0.63f, 0.70f, a});
 
-    // Footer readout: what the PC is focused on right now.
-    const Rect active = active_window_row();
-    text.draw(labels_.active_window, active.x, active.y, 12.0f * density_,
-              Color{0.52f, 0.55f, 0.62f, a});
-    const bool known = !active_process_.empty();
-    text.draw(known ? active_process_ : labels_.active_window_none, active.x,
-              active.y + 18.0f * density_, 14.0f * density_,
-              known ? Color{0.80f, 0.84f, 0.90f, a} : Color{0.48f, 0.51f, 0.58f, a});
-
     // Decimation sliders: name on the left, value on the right, track below.
     for (int i = 0; i < 2; ++i) {
         const Rect slider_row = throttle_row(i);
@@ -481,6 +490,7 @@ void SideMenu::draw(UiRenderer& ui) const {
                         Color{0.11f, 0.12f, 0.145f, 0.96f * progress_ + 0.04f});
 
         draw_rotate_button(ui, progress_);
+        draw_strip_button(ui, progress_);
         draw_mode_row(ui, progress_);
         draw_auto_launch_row(ui, progress_);
         draw_throttle_row(ui, 0, progress_);

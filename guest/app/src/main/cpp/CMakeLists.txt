@@ -20,6 +20,7 @@ find_package(game-activity REQUIRED CONFIG)
 add_library(digitiz_guest SHARED
     App.cpp
     main.cpp
+    buttons/ButtonStore.cpp
     core/Settings.cpp
     input/TouchRouter.cpp
     net/TcpTransport.cpp
@@ -29,6 +30,7 @@ add_library(digitiz_guest SHARED
     render/Shader.cpp
     render/UiRenderer.cpp
     text/TextRenderer.cpp
+    ui/ButtonStrip.cpp
     ui/Minimap.cpp
     ui/SideMenu.cpp
 )

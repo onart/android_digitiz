@@ -39,6 +39,25 @@ public:
         return true;
     }
 
+    bool key(const proto::Key& k) override {
+        if (take_failure()) {
+            return false;
+        }
+        std::string line = "key ";
+        if ((k.modifiers & proto::kModCtrl) != 0) {
+            line += "ctrl+";
+        }
+        if ((k.modifiers & proto::kModShift) != 0) {
+            line += "shift+";
+        }
+        if ((k.modifiers & proto::kModAlt) != 0) {
+            line += "alt+";
+        }
+        line += k.key;
+        calls.push_back(line);
+        return true;
+    }
+
     void release_all() override {
         ++release_all_count;
         for (bool& h : held_) {
@@ -552,4 +571,32 @@ TEST_CASE("re-enabling after a disabled stretch resumes cleanly") {
     CHECK(inj.calls[1] == "up LEFT 3,3");
     CHECK(pipe.stats().dropped_disabled == 1);
     CHECK(pipe.stats().protocol_errors == 0);
+}
+
+
+TEST_CASE("shortcuts honour the on/off switch") {
+    FakeInjector inj;
+    PointerPipeline p(inj);
+
+    p.handle(proto::Key{.modifiers = proto::kModCtrl, .key = "s"});
+    CHECK(inj.calls.empty());
+    CHECK(p.stats().dropped_disabled == 1);
+
+    p.set_enabled(true);
+    p.handle(proto::Key{.modifiers = proto::kModCtrl | proto::kModShift, .key = "s"});
+    REQUIRE(inj.calls.size() == 1);
+    CHECK(inj.calls[0] == "key ctrl+shift+s");
+    CHECK(p.stats().keys_sent == 1);
+}
+
+TEST_CASE("a key the injector refuses is counted, not retried") {
+    FakeInjector inj;
+    PointerPipeline p(inj);
+    p.set_enabled(true);
+
+    inj.fail_next = true;
+    p.handle(proto::Key{.key = "banana"});
+    CHECK(inj.calls.empty());
+    CHECK(p.stats().keys_unknown == 1);
+    CHECK(p.stats().keys_sent == 0);
 }

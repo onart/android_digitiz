@@ -138,6 +138,19 @@ void HostApp::on_transport_disconnect() {
 
 void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byte> payload) {
     switch (type) {
+    case proto::MsgType::Key: {
+        proto::Key key;
+        if (!proto::decode(payload, key)) {
+            DZ_WARN("malformed KEY payload (%zu bytes)", payload.size());
+            return;
+        }
+        {
+            std::lock_guard lock(pipeline_mutex_);
+            pipeline_->handle(key);
+        }
+        break;
+    }
+
     case proto::MsgType::Pointer: {
         proto::Pointer p;
         if (!proto::decode(payload, p)) {
@@ -595,6 +608,23 @@ void HostApp::draw_status_panel() {
     }
     ImGui::SetItemTooltip("Sent to the guest whenever it changes, for switching button presets.");
 
+    // --- cursor ---
+    // Custom buttons are entered on the phone as literal desktop coordinates,
+    // and there is nowhere else to read one off. Point at the spot with the
+    // mouse, read the number here, type it into the phone.
+    std::int32_t cursor_x = 0;
+    std::int32_t cursor_y = 0;
+    if (injector_->cursor_pos(cursor_x, cursor_y)) {
+        ImGui::Text("Cursor: %d, %d", cursor_x, cursor_y);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Copy")) {
+            char buffer[64];
+            std::snprintf(buffer, sizeof(buffer), "%d, %d", cursor_x, cursor_y);
+            ImGui::SetClipboardText(buffer);
+        }
+        ImGui::SetItemTooltip("Where to read the numbers a custom button on the phone asks for.");
+    }
+
     // --- display ---
     if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
         const core::Recti& v = layout_.virtual_bounds;
@@ -644,6 +674,9 @@ void HostApp::draw_status_panel() {
                     static_cast<unsigned long long>(s.inject_failures));
         ImGui::Text("stroke: %s   clamped coords: %llu", stroke ? "ACTIVE" : "idle",
                     static_cast<unsigned long long>(injector_->clamped_count()));
+        ImGui::Text("shortcuts sent %llu   unknown key names %llu",
+                    static_cast<unsigned long long>(s.keys_sent),
+                    static_cast<unsigned long long>(s.keys_unknown));
         if (ImGui::SmallButton("Reset stats")) {
             std::lock_guard lock(pipeline_mutex_);
             pipeline_->reset_stats();

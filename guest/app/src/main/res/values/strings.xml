@@ -14,8 +14,33 @@
     <string name="menu_throttle_time">Min interval</string>
     <string name="menu_throttle_distance">Min distance</string>
     <string name="menu_throttle_off">off</string>
-    <string name="menu_active_window">PC active window</string>
-    <string name="menu_active_window_none">—</string>
+    <string name="strip_active_window">PC:</string>
+    <string name="strip_active_window_none">not connected</string>
+
+    <!-- Custom button dialogs, shown by MainActivity. -->
+    <string name="button_new_title">New button</string>
+    <string name="button_edit_title">Edit button</string>
+    <string name="button_kind_point">Point</string>
+    <string name="button_kind_region">Region</string>
+    <string name="button_kind_shortcut">Shortcut</string>
+    <string name="button_field_name">Name (optional)</string>
+    <string name="button_field_point">1920, 540</string>
+    <string name="button_field_region">1600, 0, 320, 900</string>
+    <string name="button_field_shortcut">ctrl+shift+s</string>
+    <string name="button_hint_point">Desktop coordinates to click. Read them off the host window.</string>
+    <string name="button_hint_region">Left, top, width, height. The button becomes a scale model of that area: touch it to click inside, drag to drag.</string>
+    <string name="button_hint_shortcut">Modifiers and one key, joined by +.</string>
+    <string name="button_error_point">Enter two numbers: x, y</string>
+    <string name="button_error_region">Enter four numbers: x, y, width, height</string>
+    <string name="button_error_region_size">Width and height must be above zero</string>
+    <string name="button_error_shortcut">Enter modifiers and exactly one key</string>
+    <string name="button_menu_title">Button</string>
+    <string name="button_menu_edit">Edit</string>
+    <string name="button_menu_earlier">Move earlier</string>
+    <string name="button_menu_later">Move later</string>
+    <string name="button_menu_delete">Delete</string>
+    <string name="button_delete_title">Delete this button?</string>
+    <string name="button_delete_message">%1$s will be removed from this device.</string>
     <string name="status_waiting">Not connected</string>
     <string name="status_ready">Connected, injection off</string>
     <string name="status_live">Live</string>

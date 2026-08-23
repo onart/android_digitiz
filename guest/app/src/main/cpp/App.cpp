@@ -28,14 +28,54 @@ App::App(android_app* app)
 
     // GameActivity gives native code the external data path directly, so the
     // settings file needs no JNI.
-    settings_.load(app->activity != nullptr ? app->activity->externalDataPath : nullptr);
+    const char* external = app->activity != nullptr ? app->activity->externalDataPath : nullptr;
+    settings_.load(external);
+    buttons_.load(external);
+
     menu_.set_auto_launch(settings_.auto_launch());
     menu_.set_throttle(settings_.min_interval_ms(), settings_.min_distance_dp());
+    menu_.set_strip_vertical(settings_.strip_vertical());
     apply_throttle();
 
-    router_.set_ui_handlers([this](core::Vec2 p) { return menu_.hit_test(p); },
-                            [this](core::Vec2 p) { menu_.drag(p); },
-                            [this](core::Vec2 p) { menu_.release(p); });
+    strip_.set_buttons(&buttons_.buttons());
+    strip_.set_orientation(settings_.strip_vertical() ? StripOrientation::Vertical
+                                                      : StripOrientation::Horizontal);
+    strip_.set_expanded(settings_.strip_expanded());
+    strip_.set_sinks(
+        [this](proto::PointerAction action, core::Vec2 pc) { send_button_pointer(action, pc); },
+        [this](const CustomButton& b) { send_button_shortcut(b); });
+
+    // The drawer covers the screen when it is open, so it gets first refusal
+    // then. Closed, its handle and the strip cannot overlap, and the order
+    // between them stops mattering.
+    router_.set_ui_handlers(
+        [this](core::Vec2 p) {
+            if (!menu_.open() && strip_.hit_test(p)) {
+                ui_owner_ = UiOwner::Strip;
+                return true;
+            }
+            if (menu_.hit_test(p)) {
+                ui_owner_ = UiOwner::Menu;
+                return true;
+            }
+            ui_owner_ = UiOwner::None;
+            return false;
+        },
+        [this](core::Vec2 p) {
+            if (ui_owner_ == UiOwner::Strip) {
+                strip_.drag(p);
+            } else if (ui_owner_ == UiOwner::Menu) {
+                menu_.drag(p);
+            }
+        },
+        [this](core::Vec2 p) {
+            if (ui_owner_ == UiOwner::Strip) {
+                strip_.release(p);
+            } else if (ui_owner_ == UiOwner::Menu) {
+                menu_.release(p);
+            }
+            ui_owner_ = UiOwner::None;
+        });
     router_.set_pc_point_test([this](core::Vec2 pc) { return pc_point_on_screen(pc); });
 
     link_.set_handlers(
@@ -94,6 +134,7 @@ void App::on_command(std::int32_t cmd) {
                 text_.init_gl();
             }
             menu_.load_labels(text_);
+            strip_.load_labels(text_);
             if (app_->config != nullptr) {
                 const int dpi = AConfiguration_getDensity(app_->config);
                 if (dpi > 0) {
@@ -104,7 +145,7 @@ void App::on_command(std::int32_t cmd) {
                     apply_throttle();
                 }
             }
-            menu_.layout(gl_.width(), gl_.height(), density_);
+            relayout_widgets();
             // Only frame the view the first time. Coming back from the home
             // screen must not undo a pan and zoom the user set up.
             if (!view_fitted_) {
@@ -128,7 +169,7 @@ void App::on_command(std::int32_t cmd) {
         const int was_w = gl_.width();
         const int was_h = gl_.height();
         gl_.refresh_size();
-        menu_.layout(gl_.width(), gl_.height(), density_);
+        relayout_widgets();
 
         // A rotation changes how much of the desktop fits. Re-frame it, unless
         // the user has already pinched or panned — then the view is theirs.
@@ -148,6 +189,18 @@ void App::on_command(std::int32_t cmd) {
         // A stroke cannot be finished if the app is not in front; releasing it
         // now is what keeps the PC's mouse button from sticking.
         router_.cancel_stroke();
+        // Same for a widget holding the finger. This is not hypothetical: the
+        // long-press menu is a dialog, so opening it is itself a focus loss,
+        // and the finger that opened it never reports going up.
+        if (router_.ui_captured()) {
+            router_.cancel_ui_capture();
+            if (ui_owner_ == UiOwner::Strip) {
+                strip_.cancel_press();
+            } else if (ui_owner_ == UiOwner::Menu) {
+                menu_.cancel_press();
+            }
+            ui_owner_ = UiOwner::None;
+        }
         break;
 
     default:
@@ -174,6 +227,23 @@ void App::frame() {
     if (menu_.take_mode_change()) {
         router_.set_mode(menu_.mode());
     }
+    if (menu_.take_strip_change()) {
+        strip_.set_orientation(menu_.strip_vertical() ? StripOrientation::Vertical
+                                                      : StripOrientation::Horizontal);
+        relayout_widgets();
+        settings_.set_strip(menu_.strip_vertical(), strip_.expanded());
+    }
+    if (strip_.take_state_change()) {
+        settings_.set_strip(menu_.strip_vertical(), strip_.expanded());
+    }
+    if (strip_.take_add_request()) {
+        open_button_editor(-1);
+    }
+    if (const int held = strip_.take_long_press(); buttons_.valid(held)) {
+        show_button_menu(app_->activity, held,
+                         buttons_.buttons()[static_cast<std::size_t>(held)].label);
+    }
+    apply_button_events();
     if (menu_.take_rotate_request()) {
         // The activity owns this, not us: rotating what we draw would leave
         // the system bars and the touch mapping on the old side.
@@ -190,6 +260,7 @@ void App::frame() {
     }
 
     menu_.advance(dt);
+    strip_.advance(dt);
     render();
     gl_.swap();
 }
@@ -233,7 +304,10 @@ void App::apply_pending() {
         }
     }
     if (have_active_window) {
-        menu_.set_active_window(std::move(active_window));
+        // Beside the buttons rather than in the drawer: it is the answer to
+        // which preset is up, and an answer you have to open a drawer to read
+        // cannot do that job.
+        strip_.set_active_window(std::move(active_window));
     }
     if (cancel) {
         // The host already released on its side; this just stops us from
@@ -243,6 +317,88 @@ void App::apply_pending() {
     if (fit) {
         fit_view_to_desktop();
     }
+}
+
+void App::relayout_widgets() {
+    menu_.layout(gl_.width(), gl_.height(), density_);
+    strip_.layout(gl_.width(), gl_.height(), density_);
+}
+
+void App::apply_button_events() {
+    std::vector<ButtonEdit> edits;
+    std::vector<ButtonCommand> commands;
+    drain_button_events(edits, commands);
+    if (edits.empty() && commands.empty()) {
+        return;
+    }
+
+    for (const ButtonEdit& e : edits) {
+        CustomButton button;
+        button.kind = static_cast<ButtonKind>(e.kind);
+        button.label = e.label;
+        button.target = core::Recti{e.x, e.y, e.w, e.h};
+        button.modifiers = static_cast<std::uint8_t>(e.modifiers);
+        button.key = e.key;
+
+        if (e.index < 0) {
+            buttons_.add(std::move(button));
+        } else {
+            buttons_.replace(e.index, std::move(button));
+        }
+    }
+
+    for (const ButtonCommand& c : commands) {
+        switch (c.kind) {
+        case ButtonCommandKind::Edit:
+            open_button_editor(c.index);
+            break;
+        case ButtonCommandKind::Delete:
+            buttons_.remove(c.index);
+            break;
+        case ButtonCommandKind::Earlier:
+            buttons_.move(c.index, -1);
+            break;
+        case ButtonCommandKind::Later:
+            buttons_.move(c.index, 1);
+            break;
+        }
+    }
+
+    // How many buttons there are decides how many slots fit and whether the
+    // cycling arrows have to be paid for, so the run is measured again.
+    relayout_widgets();
+}
+
+void App::open_button_editor(int index) {
+    if (!buttons_.valid(index)) {
+        show_button_editor(app_->activity, -1, 0, "", 0, 0, 0, 0, 0, "");
+        return;
+    }
+    const CustomButton& b = buttons_.buttons()[static_cast<std::size_t>(index)];
+    show_button_editor(app_->activity, index, static_cast<int>(b.kind), b.label, b.target.x,
+                       b.target.y, b.target.w, b.target.h, b.modifiers, b.key);
+}
+
+void App::send_button_pointer(proto::PointerAction action, core::Vec2 pc) {
+    proto::Pointer p;
+    p.t_us = now_us();
+    p.x = static_cast<std::int32_t>(std::lround(pc.x));
+    p.y = static_cast<std::int32_t>(std::lround(pc.y));
+    p.action = action;
+    p.button = proto::MouseButton::Left;
+    // Absolute whatever the input mode is. A button names a place on the PC,
+    // and that meaning does not change because the drawing surface has been
+    // switched to relative.
+    p.flags = 0;
+    link_.send(proto::encode(p));
+}
+
+void App::send_button_shortcut(const CustomButton& button) {
+    proto::Key key;
+    key.modifiers = button.modifiers;
+    key.action = proto::KeyAction::Press;
+    key.key = button.key;
+    link_.send(proto::encode(key));
 }
 
 void App::apply_throttle() {
@@ -311,8 +467,16 @@ void App::render() {
 
     ui_.begin(gl_.width(), gl_.height());
     if (absolute) {
-        minimap_.draw(ui_, view_, gl_.width(), gl_.height(), desktop, monitors, density_);
+        // A vertical strip sits in the corner the minimap wants, so the map
+        // starts past it rather than under it.
+        float inset = 0.0f;
+        if (strip_.orientation() == StripOrientation::Vertical) {
+            const Rect occupied = strip_.occupied();
+            inset = occupied.x + occupied.w;
+        }
+        minimap_.draw(ui_, view_, gl_.width(), gl_.height(), desktop, monitors, density_, inset);
     }
+    strip_.draw(ui_);
     menu_.draw(ui_);
     ui_.end();
 
@@ -320,6 +484,7 @@ void App::render() {
     // them would mean rebinding on every widget.
     if (text_.ready()) {
         text_.begin(gl_.width(), gl_.height());
+        strip_.draw_labels(text_);
         menu_.draw_labels(text_);
         text_.end();
     }

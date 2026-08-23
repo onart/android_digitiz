@@ -17,7 +17,7 @@ struct Layout {
 };
 
 Layout compute(const core::ViewTransform& view, int surface_w, int surface_h, core::Recti desktop,
-               float density) {
+               float density, float inset_x) {
     const float margin = kMarginDp * density;
 
     // Preserve the desktop's aspect inside the allowed box.
@@ -32,7 +32,7 @@ Layout compute(const core::ViewTransform& view, int surface_w, int surface_h, co
     h = std::min(h, static_cast<float>(surface_h) * 0.4f);
 
     Layout out;
-    out.frame = Rect{margin, margin, w, h};
+    out.frame = Rect{margin + inset_x, margin, w, h};
 
     // Where the viewport lands in desktop coordinates.
     const core::Vec2 tl = view.to_pc(core::Vec2{0.0, 0.0});
@@ -81,13 +81,13 @@ bool Minimap::visible(const core::ViewTransform& view, int surface_w, int surfac
 }
 
 void Minimap::draw(UiRenderer& ui, const core::ViewTransform& view, int surface_w, int surface_h,
-                   core::Recti desktop, std::span<const core::Recti> monitors,
-                   float density) const {
+                   core::Recti desktop, std::span<const core::Recti> monitors, float density,
+                   float inset_x) const {
     if (!visible(view, surface_w, surface_h, desktop)) {
         return;
     }
 
-    const Layout layout = compute(view, surface_w, surface_h, desktop, density);
+    const Layout layout = compute(view, surface_w, surface_h, desktop, density, inset_x);
     const float radius = 3.0f * density;
 
     // Backing plate, dark enough to read the outlines against the grid but

@@ -29,6 +29,8 @@ public:
         std::uint64_t relative_events = 0;
         // Points the smoother produced from those samples.
         std::uint64_t smoothed_points = 0;
+        std::uint64_t keys_sent = 0;
+        std::uint64_t keys_unknown = 0;
     };
 
     // Curve fitting between samples. Absolute strokes only — in slide mode it
@@ -49,6 +51,11 @@ public:
     bool enabled() const noexcept { return enabled_; }
 
     void handle(const proto::Pointer& p);
+
+    // Shortcuts from the guest's custom buttons. Routed through here rather
+    // than straight to the injector so the on/off switch means the same thing
+    // for keys as it does for the pointer.
+    void handle(const proto::Key& k);
 
     // Call on disconnect, app exit, or any other abrupt end.
     void end_session();

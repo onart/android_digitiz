@@ -1,5 +1,7 @@
 package com.onart.digitiz;
 
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
@@ -9,10 +11,17 @@ import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.text.InputType;
+import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.Surface;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.androidgamesdk.GameActivity;
@@ -99,6 +108,293 @@ public class MainActivity extends GameActivity {
                     ? ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
                     : ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         });
+    }
+
+    // --- custom buttons ----------------------------------------------------
+    //
+    // Entering a shortcut or a pair of desktop coordinates needs a keyboard,
+    // and the native side draws its own UI in GL with no text field in it.
+    // Rather than build one, the two moments that need typing borrow a real
+    // Android dialog: the platform IME, the validation, and the back button
+    // all come for free, and the native UI stays a drawing surface.
+
+    /** Must match ButtonKind in ButtonStore.hpp. */
+    private static final int KIND_POINT = 0;
+    private static final int KIND_REGION = 1;
+    private static final int KIND_SHORTCUT = 2;
+
+    /** Must match proto::kMod* in messages.hpp. */
+    private static final int MOD_CTRL = 1;
+    private static final int MOD_SHIFT = 2;
+    private static final int MOD_ALT = 4;
+    private static final int MOD_META = 8;
+
+    /** Must match ButtonCommand in ActivityBridge.hpp. */
+    private static final int COMMAND_EDIT = -1;
+    private static final int COMMAND_DELETE = 0;
+    private static final int COMMAND_EARLIER = 1;
+    private static final int COMMAND_LATER = 2;
+
+    private static native void nativeButtonSaved(int index, int kind, String label, int x, int y,
+                                                 int w, int h, int modifiers, String key);
+
+    private static native void nativeButtonCommand(int index, int command);
+
+    /** Called from native. An {@code index} below zero creates a new button. */
+    @SuppressWarnings("unused")
+    public void showButtonEditor(final int index, final int kind, final String label, final int x,
+                                 final int y, final int w, final int h, final int modifiers,
+                                 final String key) {
+        runOnUiThread(() -> buildEditor(index, kind, label, x, y, w, h, modifiers, key));
+    }
+
+    /** Called from native when a button is held down. */
+    @SuppressWarnings("unused")
+    public void showButtonMenu(final int index, final String label) {
+        runOnUiThread(() -> {
+            final String[] items = {
+                    getString(R.string.button_menu_edit),
+                    getString(R.string.button_menu_earlier),
+                    getString(R.string.button_menu_later),
+                    getString(R.string.button_menu_delete),
+            };
+            new AlertDialog.Builder(this)
+                    .setTitle(label == null || label.isEmpty()
+                            ? getString(R.string.button_menu_title) : label)
+                    .setItems(items, (dialog, which) -> {
+                        switch (which) {
+                            case 0:
+                                // Native holds the button's fields, so it
+                                // answers by calling showButtonEditor back.
+                                nativeButtonCommand(index, COMMAND_EDIT);
+                                break;
+                            case 1:
+                                nativeButtonCommand(index, COMMAND_EARLIER);
+                                break;
+                            case 2:
+                                nativeButtonCommand(index, COMMAND_LATER);
+                                break;
+                            default:
+                                confirmDelete(index, label);
+                                break;
+                        }
+                    })
+                    .show();
+        });
+    }
+
+    private void confirmDelete(final int index, final String label) {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.button_delete_title)
+                .setMessage(getString(R.string.button_delete_message, label))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.button_menu_delete,
+                        (dialog, which) -> nativeButtonCommand(index, COMMAND_DELETE))
+                .show();
+    }
+
+    private void buildEditor(final int index, final int kind, final String label, final int x,
+                             final int y, final int w, final int h, final int modifiers,
+                             final String key) {
+        final int pad = dp(20);
+
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, dp(8), pad, 0);
+
+        final RadioGroup kinds = new RadioGroup(this);
+        kinds.setOrientation(RadioGroup.HORIZONTAL);
+        final int[] kindLabels = {R.string.button_kind_point, R.string.button_kind_region,
+                R.string.button_kind_shortcut};
+        for (int i = 0; i < kindLabels.length; ++i) {
+            final RadioButton option = new RadioButton(this);
+            option.setId(i + 1); // RadioGroup tracks the choice by id, and 0 means none
+            option.setText(kindLabels[i]);
+            kinds.addView(option);
+        }
+        kinds.check(kind + 1);
+        root.addView(kinds);
+
+        final EditText nameField = new EditText(this);
+        nameField.setHint(R.string.button_field_name);
+        nameField.setSingleLine(true);
+        nameField.setText(label);
+        root.addView(nameField);
+
+        final TextView hint = new TextView(this);
+        hint.setPadding(0, dp(12), 0, 0);
+        root.addView(hint);
+
+        final EditText valueField = new EditText(this);
+        valueField.setSingleLine(true);
+        valueField.setInputType(InputType.TYPE_CLASS_TEXT);
+        root.addView(valueField);
+
+        // Seeded from whichever fields this kind of button actually uses, so
+        // reopening the editor shows what is already there.
+        if (kind == KIND_SHORTCUT) {
+            valueField.setText(formatShortcut(modifiers, key));
+        } else if (kind == KIND_REGION) {
+            valueField.setText(x + ", " + y + ", " + w + ", " + h);
+        } else if (index >= 0) {
+            valueField.setText(x + ", " + y);
+        }
+        applyKindHints(kind, hint, valueField);
+        kinds.setOnCheckedChangeListener(
+                (group, checked) -> applyKindHints(checked - 1, hint, valueField));
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(index < 0 ? R.string.button_new_title : R.string.button_edit_title)
+                .setView(root)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, null)
+                .create();
+        dialog.show();
+
+        // Wired after show() so that a rejected value can leave the dialog
+        // open; a listener passed to the builder always dismisses.
+        dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(
+                v -> saveFromEditor(dialog, index, kinds.getCheckedRadioButtonId() - 1,
+                        nameField, valueField));
+    }
+
+    private void saveFromEditor(AlertDialog dialog, int index, int kind, EditText nameField,
+                                EditText valueField) {
+        final String value = valueField.getText().toString().trim();
+        String name = nameField.getText().toString().trim();
+
+        if (kind == KIND_SHORTCUT) {
+            final int mods = parseModifiers(value);
+            final String keyName = parseKeyName(value);
+            if (keyName.isEmpty()) {
+                Toast.makeText(this, R.string.button_error_shortcut, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (name.isEmpty()) {
+                name = formatShortcut(mods, keyName);
+            }
+            nativeButtonSaved(index, kind, name, 0, 0, 0, 0, mods, keyName);
+            dialog.dismiss();
+            return;
+        }
+
+        final boolean region = kind == KIND_REGION;
+        final int[] numbers = parseNumbers(value, region ? 4 : 2);
+        if (numbers == null) {
+            Toast.makeText(this, region ? R.string.button_error_region
+                    : R.string.button_error_point, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (region && (numbers[2] <= 0 || numbers[3] <= 0)) {
+            Toast.makeText(this, R.string.button_error_region_size, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (name.isEmpty()) {
+            name = numbers[0] + "," + numbers[1];
+        }
+        nativeButtonSaved(index, kind, name, numbers[0], numbers[1], region ? numbers[2] : 0,
+                region ? numbers[3] : 0, 0, "");
+        dialog.dismiss();
+    }
+
+    private void applyKindHints(int kind, TextView hint, EditText valueField) {
+        if (kind == KIND_SHORTCUT) {
+            hint.setText(R.string.button_hint_shortcut);
+            valueField.setHint(R.string.button_field_shortcut);
+        } else if (kind == KIND_REGION) {
+            hint.setText(R.string.button_hint_region);
+            valueField.setHint(R.string.button_field_region);
+        } else {
+            hint.setText(R.string.button_hint_point);
+            valueField.setHint(R.string.button_field_point);
+        }
+    }
+
+    /**
+     * Exactly {@code wanted} integers, separated by commas or spaces. Null when
+     * the text does not hold that many, or holds more, or holds anything else.
+     * Kept deliberately strict: a coordinate that silently parses as something
+     * other than what was typed puts the click somewhere unexplained.
+     */
+    private static int[] parseNumbers(String text, int wanted) {
+        final int[] out = new int[wanted];
+        int found = 0;
+        for (final String part : text.split("[,\\s]+")) {
+            if (part.isEmpty()) {
+                continue;
+            }
+            if (found == wanted) {
+                return null;
+            }
+            try {
+                out[found++] = Integer.parseInt(part);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return found == wanted ? out : null;
+    }
+
+    private static boolean isModifierName(String piece) {
+        switch (piece) {
+            case "ctrl": case "control": case "shift": case "alt": case "option":
+            case "win": case "meta": case "cmd": case "super":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static int parseModifiers(String text) {
+        int mods = 0;
+        for (final String part : text.toLowerCase().split("\\+")) {
+            switch (part.trim()) {
+                case "ctrl": case "control": mods |= MOD_CTRL; break;
+                case "shift": mods |= MOD_SHIFT; break;
+                case "alt": case "option": mods |= MOD_ALT; break;
+                case "win": case "meta": case "cmd": case "super": mods |= MOD_META; break;
+                default: break;
+            }
+        }
+        return mods;
+    }
+
+    /** The one segment that is not a modifier. Empty when there is not exactly one. */
+    private static String parseKeyName(String text) {
+        String key = "";
+        for (final String part : text.toLowerCase().split("\\+")) {
+            final String piece = part.trim();
+            if (piece.isEmpty() || isModifierName(piece)) {
+                continue;
+            }
+            if (!key.isEmpty()) {
+                return ""; // two real keys is not a shortcut we know how to send
+            }
+            key = piece;
+        }
+        return key;
+    }
+
+    private static String formatShortcut(int modifiers, String key) {
+        final StringBuilder out = new StringBuilder();
+        if ((modifiers & MOD_CTRL) != 0) {
+            out.append("Ctrl+");
+        }
+        if ((modifiers & MOD_SHIFT) != 0) {
+            out.append("Shift+");
+        }
+        if ((modifiers & MOD_ALT) != 0) {
+            out.append("Alt+");
+        }
+        if ((modifiers & MOD_META) != 0) {
+            out.append("Win+");
+        }
+        return out.append(key == null ? "" : key).toString();
+    }
+
+    private int dp(int value) {
+        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
+                getResources().getDisplayMetrics()));
     }
 
     /**

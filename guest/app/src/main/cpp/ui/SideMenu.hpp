@@ -26,6 +26,8 @@ public:
     bool hit_test(core::Vec2 p);
     void drag(core::Vec2 p);
     void release(core::Vec2 p);
+    // Abandons a press without acting on it.
+    void cancel_press() noexcept { dragging_slider_ = -1; }
 
     // Shapes and text use different programs, so they are drawn in two passes
     // rather than interleaved.
@@ -53,10 +55,11 @@ public:
     // asking it back would only be a second copy that can disagree.
     bool take_rotate_request() noexcept;
 
-    // The program the PC is focused on, as reported by the host. Empty when
-    // there is no link or the host could not identify the window. Display
-    // only for now; milestone 2's button presets key off the same value.
-    void set_active_window(std::string process);
+    // Which way the custom button strip runs. Seeded from persisted settings,
+    // flipped by the header button beside the rotate one.
+    void set_strip_vertical(bool on) noexcept { strip_vertical_ = on; }
+    bool strip_vertical() const noexcept { return strip_vertical_; }
+    bool take_strip_change() noexcept;
 
     // Pointer decimation while drawing, in milliseconds and dp.
     void set_throttle(int interval_ms, float distance_dp) noexcept;
@@ -74,7 +77,7 @@ private:
     Rect auto_launch_row() const;
     Rect auto_launch_switch() const;
     Rect rotate_button() const;
-    Rect active_window_row() const;
+    Rect strip_button() const;
 
     // 0 = time, 1 = distance.
     Rect throttle_row(int index) const;
@@ -87,6 +90,7 @@ private:
     void draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color, float scale = 1.0f) const;
     void draw_auto_launch_row(UiRenderer& ui, float alpha) const;
     void draw_rotate_button(UiRenderer& ui, float alpha) const;
+    void draw_strip_button(UiRenderer& ui, float alpha) const;
 
     int surface_w_ = 0;
     int surface_h_ = 0;
@@ -108,7 +112,8 @@ private:
 
     bool rotate_requested_ = false;
 
-    std::string active_process_;
+    bool strip_vertical_ = false;
+    bool strip_changed_ = false;
 
     int min_interval_ms_ = 0;
     float min_distance_dp_ = 0.0f;
@@ -124,8 +129,7 @@ private:
         std::string pan;
         std::string auto_launch;
         std::string rotate;
-        std::string active_window;
-        std::string active_window_none;
+
         std::string throttle_time;
         std::string throttle_distance;
         std::string throttle_off;

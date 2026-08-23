@@ -14,6 +14,7 @@
 #include <digitiz/core/geometry.hpp>
 #include <digitiz/proto/messages.hpp>
 
+#include "buttons/ButtonStore.hpp"
 #include "core/Settings.hpp"
 #include "input/TouchRouter.hpp"
 #include "net/TcpTransport.hpp"
@@ -21,6 +22,7 @@
 #include "render/GridRenderer.hpp"
 #include "render/UiRenderer.hpp"
 #include "text/TextRenderer.hpp"
+#include "ui/ButtonStrip.hpp"
 #include "ui/Minimap.hpp"
 #include "ui/SideMenu.hpp"
 
@@ -62,6 +64,12 @@ private:
 
     void send_hello();
     void fit_view_to_desktop();
+    void relayout_widgets();
+    // Everything the Java dialogs produced since the last frame.
+    void apply_button_events();
+    void open_button_editor(int index);
+    void send_button_pointer(proto::PointerAction action, core::Vec2 pc);
+    void send_button_shortcut(const CustomButton& button);
     bool pc_point_on_screen(core::Vec2 pc) const;
     void apply_throttle();
 
@@ -71,12 +79,19 @@ private:
     UiRenderer ui_;
     TextRenderer text_;
     SideMenu menu_;
+    ButtonStore buttons_;
+    ButtonStrip strip_;
     Minimap minimap_;
     TcpTransport link_;
     Settings settings_;
 
     core::ViewTransform view_;
     TouchRouter router_;
+
+    // Which widget owns the finger. The router hands every event of a gesture
+    // to whoever claimed the press, so this only has to survive between them.
+    enum class UiOwner : std::uint8_t { None, Menu, Strip };
+    UiOwner ui_owner_ = UiOwner::None;
 
     bool has_focus_ = false;
     bool renderers_ready_ = false;

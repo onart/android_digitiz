@@ -241,6 +241,26 @@ bool decode(std::span<const std::byte> payload, ActiveWindow& out) {
     return r.done();
 }
 
+// --- Key ---------------------------------------------------------------------
+
+std::vector<std::byte> encode(const Key& m) {
+    MessageBuilder b(MsgType::Key);
+    b.w().u8(m.modifiers);
+    b.w().u8(static_cast<std::uint8_t>(m.action));
+    b.w().pad(2);
+    b.w().fixed_str(m.key, kKeyNameBytes);
+    return b.take();
+}
+
+bool decode(std::span<const std::byte> payload, Key& out) {
+    Reader r(payload);
+    out.modifiers = r.u8();
+    out.action = static_cast<KeyAction>(r.u8());
+    r.skip(2);
+    out.key = r.fixed_str(kKeyNameBytes);
+    return r.done();
+}
+
 // --- Log -------------------------------------------------------------------
 
 std::vector<std::byte> encode(const LogMessage& m) {
