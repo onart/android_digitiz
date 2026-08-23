@@ -49,7 +49,7 @@ TCP(및 하위 USB)가 무결성을 보장하므로 실제 손상은 드물다. 
 | `0x20` | `VIEWPORT_REQ` | C→H | M2 (예약) |
 | `0x21` | `FRAME_INFO` | H→C | M2 (예약) |
 | `0x22` | `FRAME_DATA` | H→C | M2 (예약) |
-| `0x23` | `ACTIVE_WINDOW` | H→C | M2 (예약) |
+| `0x23` | `ACTIVE_WINDOW` | H→C | M2 |
 | `0x24` | `KEY` | C→H | M2 (예약) |
 | `0x25` | `WHEEL` | C→H | M2 (예약) |
 | `0x26` | `SMOOTHING` | C→H | M2 (예약) |
@@ -151,6 +151,28 @@ struct HostState {
 
 토글이 바뀔 때마다 전송. 게스트는 이걸로 그리드 색을 바꿔 상태를 표시한다.
 
+### `0x23 ACTIVE_WINDOW` (H→C)
+
+```c
+struct ActiveWindow {     // 68 bytes
+    uint32_t pid;
+    char     process[64]; // 실행 파일 이름만, NUL 패딩. "krita.exe"
+};
+```
+
+PC의 포커스가 다른 프로그램으로 옮겨갈 때마다 전송. 게스트가 프로그램별
+버튼 프리셋을 자동으로 올리는 데 쓴다.
+
+**창 제목이 아니라 실행 파일 이름이다.** 제목은 열어둔 문서를 따라 바뀌므로
+파일을 하나 열 때마다 프리셋이 흔들린다. 프리셋이 대응하는 대상은 프로그램이다.
+
+`process` 가 비어 있으면 호스트가 창을 식별하지 못한 것이다(권한이 없는
+프로세스 등). 게스트는 마지막 프리셋을 유지하지 말고 기본값으로 돌아간다.
+
+호스트는 **포커스가 잠시 머무른 뒤에** 보낸다. 알트탭 한 번은 거의 항상 셸을
+거쳐 가는데(작업 표시줄이 실제로 0.1초쯤 포커스를 가져간다) 그대로 흘리면
+전환할 때마다 프리셋이 기본값으로 떨어졌다 돌아온다. 정착 대기는 200 ms.
+
 ### `0x7F LOG` (양방향)
 
 ```c
@@ -183,9 +205,6 @@ struct ViewportReq {
 
 // 0x21 FRAME_INFO (H→C) — 프레임 메타. 뒤이어 FRAME_DATA 청크가 온다
 // 0x22 FRAME_DATA (H→C) — {u32 seq; u32 offset; bytes} 로 16 KiB 이하 분할
-
-// 0x23 ACTIVE_WINDOW (H→C) — 활성 창 변경 시. 게스트의 버튼 프리셋 자동 전환용
-struct ActiveWindow { uint32_t pid; char process[64]; /* char title[]; */ };
 
 // 0x24 KEY   (C→H) — 커스텀 버튼의 단축키 전송
 // 0x25 WHEEL (C→H)

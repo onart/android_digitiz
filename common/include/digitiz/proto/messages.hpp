@@ -108,6 +108,22 @@ struct HostState {
     bool injecting = false;
 };
 
+// --- 0x23 ACTIVE_WINDOW (H->C) ---------------------------------------------
+
+// Sent whenever the PC's focused window changes, so the guest can bring up the
+// button preset that belongs to the program being used.
+//
+// The executable name only, not the window title: the title changes with the
+// open document and would make a preset flap on every file the user opens,
+// while the program is the thing a preset is actually about.
+struct ActiveWindow {
+    std::uint32_t pid = 0;
+    // Bare file name, e.g. "krita.exe". Empty when the host could not identify
+    // the window — a preset should fall back to its default rather than stay
+    // on whatever was last matched.
+    std::string process; // wire: kProcessNameBytes, NUL padded
+};
+
 // --- 0x7F LOG (both) -------------------------------------------------------
 
 struct LogMessage {
@@ -125,6 +141,7 @@ std::vector<std::byte> encode(const Ping& m);
 std::vector<std::byte> encode(const Pong& m);
 std::vector<std::byte> encode(const Pointer& m);
 std::vector<std::byte> encode(const HostState& m);
+std::vector<std::byte> encode(const ActiveWindow& m);
 std::vector<std::byte> encode(const LogMessage& m);
 
 bool decode(std::span<const std::byte> payload, Hello& out);
@@ -133,6 +150,7 @@ bool decode(std::span<const std::byte> payload, Ping& out);
 bool decode(std::span<const std::byte> payload, Pong& out);
 bool decode(std::span<const std::byte> payload, Pointer& out);
 bool decode(std::span<const std::byte> payload, HostState& out);
+bool decode(std::span<const std::byte> payload, ActiveWindow& out);
 bool decode(std::span<const std::byte> payload, LogMessage& out);
 
 } // namespace digitiz::proto

@@ -64,6 +64,10 @@ bool SideMenu::take_rotate_request() noexcept {
     return asked;
 }
 
+void SideMenu::set_active_window(std::string process) {
+    active_process_ = std::move(process);
+}
+
 void SideMenu::set_throttle(int interval_ms, float distance_dp) noexcept {
     min_interval_ms_ = std::clamp(interval_ms, 0, kMaxIntervalMs);
     min_distance_dp_ = std::clamp(distance_dp, 0.0f, kMaxDistanceDp);
@@ -150,6 +154,16 @@ Rect SideMenu::rotate_button() const {
     const float w = 104.0f * density_;
     const float h = 34.0f * density_;
     return Rect{panel.x + panel.w - pad - w, 12.0f * density_, w, h};
+}
+
+// Anchored to the bottom rather than stacked under the sliders: it is a
+// readout, not another setting, and the gap in between says so.
+Rect SideMenu::active_window_row() const {
+    const Rect panel = panel_rect();
+    const float pad = 16.0f * density_;
+    const float h = 40.0f * density_;
+    return Rect{panel.x + pad, static_cast<float>(surface_h_) - h - 14.0f * density_,
+                panel.w - pad * 2.0f, h};
 }
 
 Rect SideMenu::mode_row() const {
@@ -379,6 +393,8 @@ void SideMenu::load_labels(TextRenderer& text) {
     labels_.pan = text.localized("menu_mode_pan");
     labels_.auto_launch = text.localized("menu_auto_launch");
     labels_.rotate = text.localized("menu_rotate");
+    labels_.active_window = text.localized("menu_active_window");
+    labels_.active_window_none = text.localized("menu_active_window_none");
     labels_.throttle_time = text.localized("menu_throttle_time");
     labels_.throttle_distance = text.localized("menu_throttle_distance");
     labels_.throttle_off = text.localized("menu_throttle_off");
@@ -424,6 +440,15 @@ void SideMenu::draw_labels(TextRenderer& text) const {
     text.draw(labels_.auto_launch, row.x + 62.0f * density_, row.y + row.h * 0.5f - half_line,
               text_size,
               auto_launch_ ? Color{0.90f, 0.93f, 0.97f, a} : Color{0.60f, 0.63f, 0.70f, a});
+
+    // Footer readout: what the PC is focused on right now.
+    const Rect active = active_window_row();
+    text.draw(labels_.active_window, active.x, active.y, 12.0f * density_,
+              Color{0.52f, 0.55f, 0.62f, a});
+    const bool known = !active_process_.empty();
+    text.draw(known ? active_process_ : labels_.active_window_none, active.x,
+              active.y + 18.0f * density_, 14.0f * density_,
+              known ? Color{0.80f, 0.84f, 0.90f, a} : Color{0.48f, 0.51f, 0.58f, a});
 
     // Decimation sliders: name on the left, value on the right, track below.
     for (int i = 0; i < 2; ++i) {

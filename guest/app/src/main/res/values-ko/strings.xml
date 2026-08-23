@@ -11,6 +11,7 @@
     <string name="menu_throttle_time">최소 시간 간격</string>
     <string name="menu_throttle_distance">최소 거리 간격</string>
     <string name="menu_throttle_off">끔</string>
+    <string name="menu_active_window">PC 활성 창</string>
     <string name="status_waiting">연결 안 됨</string>
     <string name="status_ready">연결됨, 주입 꺼짐</string>
     <string name="status_live">동작 중</string>

@@ -53,6 +53,9 @@ HostApp::HostApp(LogStore& log) : log_(&log) {}
 bool HostApp::init() {
     display_ = make_display_info();
     injector_ = make_input_injector();
+    // Optional: without it the guest simply never hears about focus changes,
+    // which costs it preset switching and nothing else.
+    foreground_ = make_foreground_watcher();
 
     if (!display_ || !injector_) {
         DZ_ERROR("no display/input backend for this platform yet");
@@ -82,6 +85,7 @@ bool HostApp::start_transport() {
 
 void HostApp::tick() {
     refresh_layout(false);
+    poll_foreground();
     pump_session();
 }
 
@@ -310,6 +314,10 @@ void HostApp::pump_session() {
     if (send_ack) {
         send_hello_ack();
         send_host_state();
+        // A guest that has just connected knows nothing about what the PC is
+        // doing. Without this it would have to wait for the user to switch
+        // programs before its presets meant anything.
+        send_active_window();
     }
 
     const auto now = std::chrono::steady_clock::now();
@@ -336,6 +344,32 @@ void HostApp::pump_session() {
         DZ_DEBUG("heartbeat: %d ping(s) unanswered", unanswered - 1);
     }
     transport_->send(proto::encode(proto::Ping{now_us()}));
+}
+
+void HostApp::poll_foreground() {
+    if (!foreground_) {
+        return;
+    }
+
+    ForegroundWindow fresh;
+    if (!foreground_->poll(fresh)) {
+        return;
+    }
+
+    active_window_.pid = fresh.pid;
+    active_window_.process = fresh.process;
+    active_window_known_ = true;
+
+    DZ_INFO("active window: %s (pid %u)",
+            fresh.process.empty() ? "<unidentified>" : fresh.process.c_str(), fresh.pid);
+    send_active_window();
+}
+
+void HostApp::send_active_window() {
+    if (!active_window_known_ || !transport_ || !session_active_) {
+        return;
+    }
+    transport_->send(proto::encode(active_window_));
 }
 
 void HostApp::send_hello_ack() {
@@ -546,6 +580,20 @@ void HostApp::draw_status_panel() {
     ImGui::Spacing();
 
     draw_connection_panel();
+
+    // --- active window ---
+    // Whatever the guest is being told, verbatim. It is what its presets will
+    // key off, so seeing the same string on both ends is the whole diagnosis
+    // when a preset does not come up.
+    if (!active_window_known_) {
+        ImGui::TextDisabled("Active window: (not detected yet)");
+    } else if (active_window_.process.empty()) {
+        ImGui::Text("Active window: unidentified (pid %u)", active_window_.pid);
+    } else {
+        ImGui::Text("Active window: %s (pid %u)", active_window_.process.c_str(),
+                    active_window_.pid);
+    }
+    ImGui::SetItemTooltip("Sent to the guest whenever it changes, for switching button presets.");
 
     // --- display ---
     if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {

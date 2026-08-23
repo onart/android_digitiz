@@ -18,6 +18,7 @@
 #include "display/DisplayInfo.hpp"
 #include "input/InputInjector.hpp"
 #include "input/PointerPipeline.hpp"
+#include "platform/ForegroundWatcher.hpp"
 #include "transport/AdbTransport.hpp"
 #include "ui/LogStore.hpp"
 
@@ -75,14 +76,17 @@ private:
 
     // --- called on the UI thread ---
     void pump_session();
+    void poll_foreground();
     void send_hello_ack();
     void send_host_state();
+    void send_active_window();
 
     LogStore* log_;
     std::unique_ptr<IDisplayInfo> display_;
     std::unique_ptr<IInputInjector> injector_;
     std::unique_ptr<PointerPipeline> pipeline_;
     std::unique_ptr<AdbTransport> transport_;
+    std::unique_ptr<IForegroundWatcher> foreground_;
 
     // Pointer messages are injected straight off the transport thread — an
     // extra hop would add latency to the one path where it is most visible.
@@ -122,6 +126,11 @@ private:
     mutable std::mutex layout_mutex_;
     DisplayLayout layout_;
     std::chrono::steady_clock::time_point last_layout_query_{};
+
+    // UI-thread only: polled in tick(), sent from pump_session(), shown in
+    // draw_ui(). Never touched from the transport thread.
+    proto::ActiveWindow active_window_;
+    bool active_window_known_ = false;
 
     bool enabled_ = false;
     AccuracyResult accuracy_;

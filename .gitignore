@@ -24,3 +24,6 @@ CMakeUserPresets.json
 # os
 Thumbs.db
 .DS_Store
+
+# Dear ImGui writes its window layout next to wherever the host was started.
+imgui.ini

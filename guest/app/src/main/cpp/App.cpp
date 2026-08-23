@@ -214,6 +214,8 @@ void App::drain_input() {
 void App::apply_pending() {
     bool fit = false;
     bool cancel = false;
+    bool have_active_window = false;
+    std::string active_window;
     {
         std::lock_guard lock(pending_mutex_);
         if (view_needs_fit_) {
@@ -224,6 +226,14 @@ void App::apply_pending() {
             stroke_cancel_pending_ = false;
             cancel = true;
         }
+        if (active_window_dirty_) {
+            active_window_dirty_ = false;
+            active_window = active_process_;
+            have_active_window = true;
+        }
+    }
+    if (have_active_window) {
+        menu_.set_active_window(std::move(active_window));
     }
     if (cancel) {
         // The host already released on its side; this just stops us from
@@ -332,6 +342,11 @@ void App::on_link_down() {
     link_up_ = false;
     host_enabled_ = false;
     stroke_cancel_pending_ = true;
+    // Nothing is focused on a PC we are not talking to. Leaving the last name
+    // up would have a preset still claiming to follow a program we can no
+    // longer see.
+    active_process_.clear();
+    active_window_dirty_ = true;
 }
 
 void App::send_hello() {
@@ -381,6 +396,24 @@ void App::on_message(proto::MsgType type, std::span<const std::byte> payload) {
         }
         desktop_ = fresh;
         monitors_ = std::move(screens);
+        break;
+    }
+
+    case proto::MsgType::ActiveWindow: {
+        proto::ActiveWindow window;
+        if (!proto::decode(payload, window)) {
+            DZ_WARN("malformed ACTIVE_WINDOW");
+            return;
+        }
+        // Debug, not info: this is the host telling us something it already
+        // logged, and echoing it back would print every focus change twice in
+        // the host console.
+        DZ_DEBUG("PC active window: %s (pid %u)",
+                 window.process.empty() ? "<unidentified>" : window.process.c_str(), window.pid);
+
+        std::lock_guard lock(pending_mutex_);
+        active_process_ = std::move(window.process);
+        active_window_dirty_ = true;
         break;
     }
 

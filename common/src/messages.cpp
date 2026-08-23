@@ -225,6 +225,22 @@ bool decode(std::span<const std::byte> payload, HostState& out) {
     return r.done();
 }
 
+// --- ActiveWindow ----------------------------------------------------------
+
+std::vector<std::byte> encode(const ActiveWindow& m) {
+    MessageBuilder b(MsgType::ActiveWindow);
+    b.w().u32(m.pid);
+    b.w().fixed_str(m.process, kProcessNameBytes);
+    return b.take();
+}
+
+bool decode(std::span<const std::byte> payload, ActiveWindow& out) {
+    Reader r(payload);
+    out.pid = r.u32();
+    out.process = r.fixed_str(kProcessNameBytes);
+    return r.done();
+}
+
 // --- Log -------------------------------------------------------------------
 
 std::vector<std::byte> encode(const LogMessage& m) {

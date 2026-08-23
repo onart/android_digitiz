@@ -53,6 +53,11 @@ public:
     // asking it back would only be a second copy that can disagree.
     bool take_rotate_request() noexcept;
 
+    // The program the PC is focused on, as reported by the host. Empty when
+    // there is no link or the host could not identify the window. Display
+    // only for now; milestone 2's button presets key off the same value.
+    void set_active_window(std::string process);
+
     // Pointer decimation while drawing, in milliseconds and dp.
     void set_throttle(int interval_ms, float distance_dp) noexcept;
     int min_interval_ms() const noexcept { return min_interval_ms_; }
@@ -69,6 +74,7 @@ private:
     Rect auto_launch_row() const;
     Rect auto_launch_switch() const;
     Rect rotate_button() const;
+    Rect active_window_row() const;
 
     // 0 = time, 1 = distance.
     Rect throttle_row(int index) const;
@@ -102,6 +108,8 @@ private:
 
     bool rotate_requested_ = false;
 
+    std::string active_process_;
+
     int min_interval_ms_ = 0;
     float min_distance_dp_ = 0.0f;
     bool throttle_changed_ = false;
@@ -116,6 +124,8 @@ private:
         std::string pan;
         std::string auto_launch;
         std::string rotate;
+        std::string active_window;
+        std::string active_window_none;
         std::string throttle_time;
         std::string throttle_distance;
         std::string throttle_off;

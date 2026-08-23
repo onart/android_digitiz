@@ -14,6 +14,8 @@
     <string name="menu_throttle_time">Min interval</string>
     <string name="menu_throttle_distance">Min distance</string>
     <string name="menu_throttle_off">off</string>
+    <string name="menu_active_window">PC active window</string>
+    <string name="menu_active_window_none">—</string>
     <string name="status_waiting">Not connected</string>
     <string name="status_ready">Connected, injection off</string>
     <string name="status_live">Live</string>

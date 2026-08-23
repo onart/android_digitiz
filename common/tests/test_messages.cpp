@@ -147,6 +147,30 @@ TEST_CASE("Pong and HostState round-trip") {
     CHECK_FALSE(state_out.injecting);
 }
 
+TEST_CASE("ActiveWindow round-trips") {
+    ActiveWindow out;
+    REQUIRE(decode(payload_of(encode(ActiveWindow{.pid = 4242, .process = "krita.exe"})), out));
+    CHECK(out.pid == 4242);
+    CHECK(out.process == "krita.exe");
+}
+
+TEST_CASE("ActiveWindow carries an unidentified window as an empty name") {
+    ActiveWindow out;
+    REQUIRE(decode(payload_of(encode(ActiveWindow{.pid = 0, .process = ""})), out));
+    CHECK(out.pid == 0);
+    CHECK(out.process.empty());
+}
+
+TEST_CASE("ActiveWindow truncates an over-long process name") {
+    // Longer than the field, which the wire has to survive rather than
+    // overrun. Windows path components can reach 255 characters.
+    const std::string long_name(kProcessNameBytes + 20, 'a');
+
+    ActiveWindow out;
+    REQUIRE(decode(payload_of(encode(ActiveWindow{.pid = 1, .process = long_name})), out));
+    CHECK(out.process.size() == kProcessNameBytes);
+}
+
 TEST_CASE("LogMessage carries a variable-length body") {
     const LogMessage in{.level = core::LogLevel::Warn, .text = "reverse tunnel dropped"};
 

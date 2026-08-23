@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include <game-activity/native_app_glue/android_native_app_glue.h>
@@ -89,6 +90,11 @@ private:
     // the same as `desktop_` once monitors differ in size or alignment.
     std::vector<core::Recti> monitors_{core::Recti{0, 0, 1920, 1080}};
     bool host_enabled_ = false;
+    // What the PC is focused on. Milestone 2 keys button presets off this;
+    // until those exist it is shown in the drawer, which is enough to tell
+    // whether the host is reporting what it should.
+    std::string active_process_;
+    bool active_window_dirty_ = false;
     bool link_up_ = false;
     bool view_needs_fit_ = false;
     bool heartbeat_seen_ = false;
