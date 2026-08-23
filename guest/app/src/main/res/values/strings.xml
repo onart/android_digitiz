@@ -2,4 +2,14 @@
 <resources>
     <string name="app_name">Digitiz</string>
     <string name="press_back_again">Press back again to exit</string>
+
+    <!-- Drawn by the native UI through MainActivity.localizedString(). -->
+    <string name="menu_title">Digitiz</string>
+    <string name="menu_input_mode">Input mode</string>
+    <string name="menu_mode_draw">Draw</string>
+    <string name="menu_mode_pan">Move</string>
+    <string name="menu_auto_launch">Auto-launch from PC</string>
+    <string name="status_waiting">Not connected</string>
+    <string name="status_ready">Connected, injection off</string>
+    <string name="status_live">Live</string>
 </resources>

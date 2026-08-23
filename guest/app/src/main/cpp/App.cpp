@@ -79,6 +79,15 @@ void App::on_command(std::int32_t cmd) {
                     DZ_ERROR("renderer initialisation failed");
                 }
             }
+
+            // Text is optional: without it the UI still works, just wordless.
+            // The JNI attachment survives a surface bounce, only GL does not.
+            if (!text_.attached()) {
+                text_.init(app_->activity);
+            } else {
+                text_.init_gl();
+            }
+            menu_.load_labels(text_);
             if (app_->config != nullptr) {
                 const int dpi = AConfiguration_getDensity(app_->config);
                 if (dpi > 0) {
@@ -99,6 +108,7 @@ void App::on_command(std::int32_t cmd) {
         // GL objects die with the context, so they must be rebuilt on return.
         grid_.release();
         ui_.release();
+        text_.release_gl();
         renderers_ready_ = false;
         gl_.detach();
         break;
@@ -259,6 +269,14 @@ void App::render() {
     minimap_.draw(ui_, view_, gl_.width(), gl_.height(), desktop, monitors, density_);
     menu_.draw(ui_);
     ui_.end();
+
+    // Separate pass: shapes and text use different programs, and interleaving
+    // them would mean rebinding on every widget.
+    if (text_.ready()) {
+        text_.begin(gl_.width(), gl_.height());
+        menu_.draw_labels(text_);
+        text_.end();
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -8,8 +8,11 @@
 
 #include <digitiz/core/geometry.hpp>
 
+#include <string>
+
 #include "input/TouchRouter.hpp"
 #include "render/UiRenderer.hpp"
+#include "text/TextRenderer.hpp"
 
 namespace digitiz::guest {
 
@@ -22,7 +25,13 @@ public:
     // the digitizer. Also drives the toggle and the mode switch.
     bool hit_test(core::Vec2 p);
 
+    // Shapes and text use different programs, so they are drawn in two passes
+    // rather than interleaved.
     void draw(UiRenderer& ui) const;
+    void draw_labels(TextRenderer& text) const;
+
+    // Pulls label text from strings.xml once the text renderer is up.
+    void load_labels(TextRenderer& text);
 
     bool open() const noexcept { return target_ > 0.5f; }
 
@@ -65,6 +74,16 @@ private:
 
     bool auto_launch_ = true;
     bool auto_launch_changed_ = false;
+
+    struct Labels {
+        std::string title;
+        std::string input_mode;
+        std::string draw;
+        std::string pan;
+        std::string auto_launch;
+    };
+    Labels labels_;
+    bool labels_loaded_ = false;
 };
 
 } // namespace digitiz::guest

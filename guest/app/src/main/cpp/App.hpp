@@ -19,6 +19,7 @@
 #include "render/GlContext.hpp"
 #include "render/GridRenderer.hpp"
 #include "render/UiRenderer.hpp"
+#include "text/TextRenderer.hpp"
 #include "ui/Minimap.hpp"
 #include "ui/SideMenu.hpp"
 
@@ -66,6 +67,7 @@ private:
     GlContext gl_;
     GridRenderer grid_;
     UiRenderer ui_;
+    TextRenderer text_;
     SideMenu menu_;
     Minimap minimap_;
     TcpTransport link_;

@@ -76,8 +76,9 @@ Rect SideMenu::mode_cell(int index) const {
     const Rect panel = panel_rect();
     const float pad = 16.0f * density_;
     const float gap = 10.0f * density_;
-    const float top = 44.0f * density_;
-    const float height = 68.0f * density_;
+    // Below the title and the section heading.
+    const float top = 96.0f * density_;
+    const float height = 84.0f * density_;
     const float width = (panel.w - pad * 2.0f - gap) * 0.5f;
 
     return Rect{panel.x + pad + static_cast<float>(index) * (width + gap), top, width, height};
@@ -87,8 +88,8 @@ Rect SideMenu::auto_launch_row() const {
     const Rect panel = panel_rect();
     const Rect cells = mode_cell(0);
     const float pad = 16.0f * density_;
-    return Rect{panel.x + pad, cells.y + cells.h + 18.0f * density_, panel.w - pad * 2.0f,
-                52.0f * density_};
+    return Rect{panel.x + pad, cells.y + cells.h + 20.0f * density_, panel.w - pad * 2.0f,
+                56.0f * density_};
 }
 
 Rect SideMenu::auto_launch_switch() const {
@@ -147,13 +148,20 @@ bool SideMenu::hit_test(core::Vec2 p) {
     return false;
 }
 
+// Glyphs sit in the upper part of the cell; the label goes underneath.
+namespace {
+float glyph_center_y(Rect cell) {
+    return cell.y + cell.h * 0.34f;
+}
+} // namespace
+
 // A filled dot: one point, which is what a stroke puts on the PC.
 void SideMenu::draw_draw_glyph(UiRenderer& ui, Rect cell, float alpha) const {
     const float d = 14.0f * density_;
     const Color c = mode_ == InputMode::Draw ? Color{1.0f, 1.0f, 1.0f, alpha}
                                              : Color{kIdleGlyph.r, kIdleGlyph.g, kIdleGlyph.b, alpha};
-    ui.rounded_rect(Rect{cell.x + (cell.w - d) * 0.5f, cell.y + (cell.h - d) * 0.5f, d, d}, d * 0.5f,
-                    c);
+    ui.rounded_rect(Rect{cell.x + (cell.w - d) * 0.5f, glyph_center_y(cell) - d * 0.5f, d, d},
+                    d * 0.5f, c);
 }
 
 // A cross, read as "move in any direction".
@@ -164,14 +172,14 @@ void SideMenu::draw_pan_glyph(UiRenderer& ui, Rect cell, float alpha) const {
                                             : Color{kIdleGlyph.r, kIdleGlyph.g, kIdleGlyph.b, alpha};
 
     const float cx = cell.x + cell.w * 0.5f;
-    const float cy = cell.y + cell.h * 0.5f;
+    const float cy = glyph_center_y(cell);
     ui.rounded_rect(Rect{cx - len * 0.5f, cy - bar * 0.5f, len, bar}, bar * 0.5f, c);
     ui.rounded_rect(Rect{cx - bar * 0.5f, cy - len * 0.5f, bar, len}, bar * 0.5f, c);
 }
 
 // "The PC may open this app by itself": a phone with something arriving at it,
-// plus a switch. There is no text rendering yet, so the pictogram carries it;
-// milestone 2's settings screen can label it properly.
+// plus a switch. The label beside it does the explaining; the pictogram is
+// there to make the row scannable.
 void SideMenu::draw_auto_launch_row(UiRenderer& ui, float alpha) const {
     const Rect row = auto_launch_row();
     ui.rounded_rect(row, 12.0f * density_, Color{0.16f, 0.17f, 0.21f, 0.9f * alpha});
@@ -213,16 +221,58 @@ void SideMenu::draw_auto_launch_row(UiRenderer& ui, float alpha) const {
                     Color{0.96f, 0.97f, 1.0f, alpha});
 }
 
+void SideMenu::load_labels(TextRenderer& text) {
+    if (labels_loaded_) {
+        return;
+    }
+    labels_.title = text.localized("menu_title");
+    labels_.input_mode = text.localized("menu_input_mode");
+    labels_.draw = text.localized("menu_mode_draw");
+    labels_.pan = text.localized("menu_mode_pan");
+    labels_.auto_launch = text.localized("menu_auto_launch");
+    labels_loaded_ = true;
+}
+
+void SideMenu::draw_labels(TextRenderer& text) const {
+    if (progress_ <= 0.01f || !labels_loaded_) {
+        return;
+    }
+
+    const Rect panel = panel_rect();
+    const float pad = 16.0f * density_;
+    const float a = progress_;
+
+    text.draw(labels_.title, panel.x + pad, 20.0f * density_, 17.0f * density_,
+              Color{0.92f, 0.94f, 0.98f, a}, TextAlign::Left, true);
+
+    text.draw(labels_.input_mode, panel.x + pad, 62.0f * density_, 12.0f * density_,
+              Color{0.55f, 0.60f, 0.70f, a});
+
+    // Mode labels sit under their glyph, inside the cell.
+    for (int i = 0; i < 2; ++i) {
+        const Rect cell = mode_cell(i);
+        const bool active = (i == 0) == (mode_ == InputMode::Draw);
+        const std::string& label = i == 0 ? labels_.draw : labels_.pan;
+
+        text.draw(label, cell.x + cell.w * 0.5f, cell.y + cell.h * 0.58f, 14.0f * density_,
+                  active ? Color{1.0f, 1.0f, 1.0f, a} : Color{0.66f, 0.70f, 0.78f, a},
+                  TextAlign::Center);
+    }
+
+    const Rect row = auto_launch_row();
+    const Rect sw = auto_launch_switch();
+    const float label_x = row.x + 62.0f * density_;
+    text.draw(labels_.auto_launch, label_x, row.y + (row.h - 20.0f * density_) * 0.5f,
+              14.0f * density_,
+              auto_launch_ ? Color{0.90f, 0.93f, 0.97f, a} : Color{0.60f, 0.63f, 0.70f, a});
+    (void)sw;
+}
+
 void SideMenu::draw(UiRenderer& ui) const {
     if (progress_ > 0.01f) {
         const Rect panel = panel_rect();
         ui.rounded_rect(panel, 18.0f * density_,
                         Color{0.11f, 0.12f, 0.145f, 0.96f * progress_ + 0.04f});
-
-        // Header strip.
-        ui.rounded_rect(Rect{panel.x + 16.0f * density_, 18.0f * density_,
-                             panel.w - 32.0f * density_, 4.0f * density_},
-                        2.0f * density_, Color{0.30f, 0.34f, 0.42f, progress_});
 
         for (int i = 0; i < 2; ++i) {
             const Rect cell = mode_cell(i);

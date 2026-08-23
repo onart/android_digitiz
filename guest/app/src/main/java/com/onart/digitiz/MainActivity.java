@@ -1,5 +1,10 @@
 package com.onart.digitiz;
 
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.KeyEvent;
@@ -73,6 +78,60 @@ public class MainActivity extends GameActivity {
         exitToast = Toast.makeText(this, R.string.press_back_again, Toast.LENGTH_SHORT);
         exitToast.show();
     }
+
+    // --- called from native ------------------------------------------------
+    //
+    // The native side draws its own UI in GL and has no font of its own.
+    // Rasterizing through Paint means the platform's font stack does the work,
+    // so Korean and anything else render correctly without shipping a CJK font
+    // that would add megabytes to the APK.
+
+    /**
+     * Rasterizes one line of text, white on transparent.
+     *
+     * <p>Packed into a single array to keep the JNI call trivial:
+     * {@code [0]} width, {@code [1]} height, {@code [2]} baseline from the top,
+     * then {@code width * height} ARGB_8888 pixels. Only the alpha channel is
+     * used — the caller tints it.
+     */
+    @SuppressWarnings("unused")
+    public static int[] rasterizeText(String text, float sizePx, boolean bold) {
+        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
+        paint.setTextSize(sizePx);
+        paint.setColor(Color.WHITE);
+        paint.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+
+        final Paint.FontMetrics fm = paint.getFontMetrics();
+        final int ascent = (int) Math.ceil(-fm.ascent);
+        final int descent = (int) Math.ceil(fm.descent);
+
+        final int width = Math.max(1, (int) Math.ceil(paint.measureText(text)));
+        final int height = Math.max(1, ascent + descent);
+
+        final Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        final Canvas canvas = new Canvas(bitmap);
+        canvas.drawText(text, 0, ascent, paint);
+
+        final int[] out = new int[width * height + 3];
+        out[0] = width;
+        out[1] = height;
+        out[2] = ascent;
+        bitmap.getPixels(out, 3, width, 0, 0, width, height);
+        bitmap.recycle();
+        return out;
+    }
+
+    /**
+     * Looks up a string resource by name, so labels drawn by the native UI come
+     * from the same strings.xml as everything else and pick up translations.
+     */
+    @SuppressWarnings("unused")
+    public String localizedString(String resourceName) {
+        final int id = getResources().getIdentifier(resourceName, "string", getPackageName());
+        return id != 0 ? getString(id) : resourceName;
+    }
+
+    // -----------------------------------------------------------------------
 
     @Override
     protected void onResume() {
