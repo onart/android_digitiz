@@ -40,6 +40,10 @@ public:
     bool strip_expanded() const noexcept { return strip_expanded_; }
     void set_strip(bool vertical, bool expanded);
 
+    // Buttons shown at once. Zero means the strip picks its own default.
+    int strip_slots() const noexcept { return strip_slots_; }
+    void set_strip_slots(int slots);
+
     const std::string& path() const noexcept { return path_; }
 
 private:
@@ -51,6 +55,7 @@ private:
     float min_distance_dp_ = 0.0f;
     bool strip_vertical_ = false;
     bool strip_expanded_ = false;
+    int strip_slots_ = 0;
 };
 
 } // namespace digitiz::guest

@@ -41,6 +41,7 @@ App::App(android_app* app)
     strip_.set_orientation(settings_.strip_vertical() ? StripOrientation::Vertical
                                                       : StripOrientation::Horizontal);
     strip_.set_expanded(settings_.strip_expanded());
+    strip_.set_slot_limit(settings_.strip_slots());
     strip_.set_sinks(
         [this](proto::PointerAction action, core::Vec2 pc) { send_button_pointer(action, pc); },
         [this](const CustomButton& b) { send_button_shortcut(b); });
@@ -236,6 +237,11 @@ void App::frame() {
     if (strip_.take_state_change()) {
         settings_.set_strip(menu_.strip_vertical(), strip_.expanded());
     }
+    if (menu_.take_strip_slots_change()) {
+        strip_.set_slot_limit(menu_.strip_slots());
+        relayout_widgets();
+        settings_.set_strip_slots(menu_.strip_slots());
+    }
     if (strip_.take_add_request()) {
         open_button_editor(-1);
     }
@@ -322,6 +328,9 @@ void App::apply_pending() {
 void App::relayout_widgets() {
     menu_.layout(gl_.width(), gl_.height(), density_);
     strip_.layout(gl_.width(), gl_.height(), density_);
+    // The ceiling depends on the direction the strip is running and on the
+    // screen, so only the strip can say what it is; the menu just shows it.
+    menu_.set_strip_slots(strip_.slot_limit(), strip_.max_slots());
 }
 
 void App::apply_button_events() {

@@ -56,24 +56,21 @@ void ButtonStrip::layout(int surface_w, int surface_h, float density) {
     const float axis = static_cast<float>(horizontal() ? surface_w : surface_h);
     const float available = axis - m.margin * 2.0f;
 
-    if (expanded_) {
-        const int n = count();
-        const auto fit = [&](float reserved) {
-            const float room = available - m.toggle - m.add - reserved;
-            return room <= 0.0f ? 0 : static_cast<int>(room / m.slot);
-        };
+    // Slots that fit in a given length, with room for the arrows kept back.
+    // Counting them in even when they are not drawn keeps the strip from
+    // changing length the moment a button is added past the limit.
+    const auto fit_in = [&](float budget) {
+        const float room = budget - m.toggle - m.add - m.arrow * 2.0f;
+        return room <= 0.0f ? 0 : static_cast<int>(room / m.slot);
+    };
 
-        m.visible = fit(0.0f);
-        if (m.visible < n) {
-            // Not everything fits, so the arrows have to be paid for out of
-            // the same run.
-            m.arrows = true;
-            m.visible = fit(m.arrow * 2.0f);
-        }
-        m.visible = std::clamp(m.visible, 0, n);
-        if (m.visible >= n) {
-            m.arrows = false;
-        }
+    max_slots_ = std::max(fit_in(available), 1);
+    const int wanted = slot_limit_ > 0 ? slot_limit_ : std::max(fit_in(axis * 0.5f), 1);
+    effective_limit_ = std::clamp(wanted, 1, max_slots_);
+
+    if (expanded_) {
+        m.visible = std::min(count(), effective_limit_);
+        m.arrows = count() > m.visible;
         m.run = static_cast<float>(m.visible) * m.slot;
     }
 

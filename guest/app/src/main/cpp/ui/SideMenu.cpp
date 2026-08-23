@@ -81,33 +81,62 @@ bool SideMenu::take_throttle_change() noexcept {
     return changed;
 }
 
-Rect SideMenu::throttle_row(int index) const {
+void SideMenu::set_strip_slots(int slots, int max) noexcept {
+    strip_slots_max_ = max > 0 ? max : 1;
+    strip_slots_ = std::clamp(slots, 1, strip_slots_max_);
+}
+
+bool SideMenu::take_strip_slots_change() noexcept {
+    const bool changed = strip_slots_changed_;
+    strip_slots_changed_ = false;
+    return changed;
+}
+
+Rect SideMenu::slider_row(int index) const {
     const Rect above = auto_launch_row();
     // Heights are already in pixels here; multiplying the whole expression by
     // density again is the easy mistake.
-    const float h = 64.0f * density_;
+    const float h = 58.0f * density_;
     const float gap = 8.0f * density_;
     const float top = above.y + above.h + 12.0f * density_ + static_cast<float>(index) * (h + gap);
     return Rect{above.x, top, above.w, h};
 }
 
-Rect SideMenu::throttle_track(int index) const {
-    const Rect row = throttle_row(index);
+Rect SideMenu::slider_track(int index) const {
+    const Rect row = slider_row(index);
     const float pad = 16.0f * density_;
-    return Rect{row.x + pad, row.y + row.h - 22.0f * density_, row.w - pad * 2.0f,
+    return Rect{row.x + pad, row.y + row.h - 20.0f * density_, row.w - pad * 2.0f,
                 6.0f * density_};
 }
 
-float SideMenu::throttle_fraction(int index) const {
+float SideMenu::slider_fraction(int index) const {
     if (index == 0) {
         return static_cast<float>(min_interval_ms_) / static_cast<float>(kMaxIntervalMs);
     }
-    return min_distance_dp_ / kMaxDistanceDp;
+    if (index == 1) {
+        return min_distance_dp_ / kMaxDistanceDp;
+    }
+    // One slot is the left end rather than zero: a strip that shows nothing is
+    // not a setting anyone wants.
+    if (strip_slots_max_ <= 1) {
+        return 1.0f;
+    }
+    return static_cast<float>(strip_slots_ - 1) / static_cast<float>(strip_slots_max_ - 1);
 }
 
-void SideMenu::set_throttle_from_x(int index, float x) {
-    const Rect track = throttle_track(index);
+void SideMenu::set_slider_from_x(int index, float x) {
+    const Rect track = slider_track(index);
     const float t = std::clamp((x - track.x) / track.w, 0.0f, 1.0f);
+
+    if (index == 2) {
+        const int slots =
+            1 + static_cast<int>(std::lround(t * static_cast<float>(strip_slots_max_ - 1)));
+        if (slots != strip_slots_) {
+            strip_slots_ = slots;
+            strip_slots_changed_ = true;
+        }
+        return;
+    }
 
     if (index == 0) {
         const int ms = static_cast<int>(std::lround(t * kMaxIntervalMs));
@@ -170,7 +199,7 @@ Rect SideMenu::strip_button() const {
 Rect SideMenu::mode_row() const {
     const Rect panel = panel_rect();
     const float pad = 16.0f * density_;
-    return Rect{panel.x + pad, 62.0f * density_, panel.w - pad * 2.0f, 56.0f * density_};
+    return Rect{panel.x + pad, 56.0f * density_, panel.w - pad * 2.0f, 54.0f * density_};
 }
 
 Rect SideMenu::mode_value_pill() const {
@@ -226,13 +255,13 @@ bool SideMenu::hit_test(core::Vec2 p) {
                 auto_launch_ = !auto_launch_;
                 auto_launch_changed_ = true;
             } else {
-                for (int i = 0; i < 2; ++i) {
-                    if (!throttle_row(i).contains(p)) {
+                for (int i = 0; i < kSliderCount; ++i) {
+                    if (!slider_row(i).contains(p)) {
                         continue;
                     }
                     // Jump to where the finger landed, then track it.
                     dragging_slider_ = i;
-                    set_throttle_from_x(i, static_cast<float>(p.x));
+                    set_slider_from_x(i, static_cast<float>(p.x));
                     break;
                 }
             }
@@ -280,13 +309,15 @@ void SideMenu::draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color,
     }
 }
 
-void SideMenu::draw_throttle_row(UiRenderer& ui, int index, float alpha) const {
-    const Rect row = throttle_row(index);
+void SideMenu::draw_slider_row(UiRenderer& ui, int index, float alpha) const {
+    const Rect row = slider_row(index);
     ui.rounded_rect(row, 12.0f * density_, Color{0.16f, 0.17f, 0.21f, 0.9f * alpha});
 
-    const Rect track = throttle_track(index);
-    const float t = throttle_fraction(index);
-    const bool off = t <= 0.0f;
+    const Rect track = slider_track(index);
+    const float t = slider_fraction(index);
+    // Only the decimation sliders have an off position; the strip always shows
+    // at least one button.
+    const bool off = index != 2 && t <= 0.0f;
 
     ui.rounded_rect(track, track.h * 0.5f, Color{0.26f, 0.27f, 0.32f, alpha});
     if (!off) {
@@ -391,13 +422,13 @@ void SideMenu::drag(core::Vec2 p) {
     if (dragging_slider_ >= 0) {
         // Tracked by x only: the finger wandering off the track vertically
         // should not abandon the drag.
-        set_throttle_from_x(dragging_slider_, static_cast<float>(p.x));
+        set_slider_from_x(dragging_slider_, static_cast<float>(p.x));
     }
 }
 
 void SideMenu::release(core::Vec2 p) {
     if (dragging_slider_ >= 0) {
-        set_throttle_from_x(dragging_slider_, static_cast<float>(p.x));
+        set_slider_from_x(dragging_slider_, static_cast<float>(p.x));
         dragging_slider_ = -1;
     }
 }
@@ -416,6 +447,7 @@ void SideMenu::load_labels(TextRenderer& text) {
     labels_.throttle_time = text.localized("menu_throttle_time");
     labels_.throttle_distance = text.localized("menu_throttle_distance");
     labels_.throttle_off = text.localized("menu_throttle_off");
+    labels_.strip_length = text.localized("menu_strip_length");
     labels_loaded_ = true;
 }
 
@@ -459,25 +491,32 @@ void SideMenu::draw_labels(TextRenderer& text) const {
               text_size,
               auto_launch_ ? Color{0.90f, 0.93f, 0.97f, a} : Color{0.60f, 0.63f, 0.70f, a});
 
-    // Decimation sliders: name on the left, value on the right, track below.
-    for (int i = 0; i < 2; ++i) {
-        const Rect slider_row = throttle_row(i);
+    // Sliders: name on the left, value on the right, track below.
+    for (int i = 0; i < kSliderCount; ++i) {
+        const Rect row_rect = slider_row(i);
         const float pad = 16.0f * density_;
-        const float label_y = slider_row.y + 12.0f * density_;
-        const bool off = throttle_fraction(i) <= 0.0f;
+        const float label_y = row_rect.y + 12.0f * density_;
+        const bool off = i != 2 && slider_fraction(i) <= 0.0f;
 
-        text.draw(i == 0 ? labels_.throttle_time : labels_.throttle_distance, slider_row.x + pad,
-                  label_y, text_size, Color{0.80f, 0.84f, 0.90f, a});
+        const std::string* name = &labels_.throttle_time;
+        if (i == 1) {
+            name = &labels_.throttle_distance;
+        } else if (i == 2) {
+            name = &labels_.strip_length;
+        }
+        text.draw(*name, row_rect.x + pad, label_y, text_size, Color{0.80f, 0.84f, 0.90f, a});
 
         char value[32];
         if (off) {
             std::snprintf(value, sizeof(value), "%s", labels_.throttle_off.c_str());
         } else if (i == 0) {
             std::snprintf(value, sizeof(value), "%d ms", min_interval_ms_);
-        } else {
+        } else if (i == 1) {
             std::snprintf(value, sizeof(value), "%.1f dp", static_cast<double>(min_distance_dp_));
+        } else {
+            std::snprintf(value, sizeof(value), "%d / %d", strip_slots_, strip_slots_max_);
         }
-        text.draw(value, slider_row.x + slider_row.w - pad, label_y, text_size,
+        text.draw(value, row_rect.x + row_rect.w - pad, label_y, text_size,
                   off ? Color{0.55f, 0.58f, 0.66f, a} : Color{0.55f, 0.92f, 0.75f, a},
                   TextAlign::Right);
     }
@@ -493,8 +532,9 @@ void SideMenu::draw(UiRenderer& ui) const {
         draw_strip_button(ui, progress_);
         draw_mode_row(ui, progress_);
         draw_auto_launch_row(ui, progress_);
-        draw_throttle_row(ui, 0, progress_);
-        draw_throttle_row(ui, 1, progress_);
+        for (int i = 0; i < kSliderCount; ++i) {
+            draw_slider_row(ui, i, progress_);
+        }
     }
 
     const Rect handle = handle_rect();

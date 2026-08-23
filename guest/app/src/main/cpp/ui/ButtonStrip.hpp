@@ -31,6 +31,15 @@ public:
     // thread, and a copy would only be a second thing to keep in step.
     void set_buttons(const std::vector<CustomButton>* buttons) noexcept { buttons_ = buttons; }
 
+    // How many buttons the strip is allowed to show at once. Zero asks for
+    // the default, which is the most that fit in half the edge -- a strip is
+    // an overlay on a drawing surface, and one that runs the whole way across
+    // by default would be taking more than it asked for. Clamped to what the
+    // screen can actually hold.
+    void set_slot_limit(int slots) noexcept { slot_limit_ = slots; }
+    int slot_limit() const noexcept { return effective_limit_; }
+    int max_slots() const noexcept { return max_slots_; }
+
     void set_orientation(StripOrientation o) noexcept { orientation_ = o; }
     StripOrientation orientation() const noexcept { return orientation_; }
     void set_expanded(bool on) noexcept { expanded_ = on; }
@@ -137,6 +146,10 @@ private:
     int surface_h_ = 0;
     float density_ = 1.0f;
     Metrics m_;
+
+    int slot_limit_ = 0;      // 0 asks for the default
+    int effective_limit_ = 1; // after the default and the clamp
+    int max_slots_ = 1;       // what this screen can hold in this direction
 
     // Pixels, not an index: a drag has to move the list by however far the
     // finger went, not in whole buttons. Never wrapped in place, so an

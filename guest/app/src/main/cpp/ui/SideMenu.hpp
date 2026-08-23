@@ -67,6 +67,13 @@ public:
     float min_distance_dp() const noexcept { return min_distance_dp_; }
     bool take_throttle_change() noexcept;
 
+    // How many buttons the strip shows at once. `max` comes from the strip,
+    // which is the only thing that knows what the screen can hold in the
+    // direction it is currently running.
+    void set_strip_slots(int slots, int max) noexcept;
+    int strip_slots() const noexcept { return strip_slots_; }
+    bool take_strip_slots_change() noexcept;
+
 private:
     Rect handle_rect() const;
     Rect panel_rect() const;
@@ -79,12 +86,14 @@ private:
     Rect rotate_button() const;
     Rect strip_button() const;
 
-    // 0 = time, 1 = distance.
-    Rect throttle_row(int index) const;
-    Rect throttle_track(int index) const;
-    float throttle_fraction(int index) const;
-    void set_throttle_from_x(int index, float x);
-    void draw_throttle_row(UiRenderer& ui, int index, float alpha) const;
+    // 0 = min interval, 1 = min distance, 2 = strip length. Three sliders of
+    // the same shape, so they share their geometry and their drag handling.
+    static constexpr int kSliderCount = 3;
+    Rect slider_row(int index) const;
+    Rect slider_track(int index) const;
+    float slider_fraction(int index) const;
+    void set_slider_from_x(int index, float x);
+    void draw_slider_row(UiRenderer& ui, int index, float alpha) const;
 
     void draw_mode_row(UiRenderer& ui, float alpha) const;
     void draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color, float scale = 1.0f) const;
@@ -118,6 +127,10 @@ private:
     int min_interval_ms_ = 0;
     float min_distance_dp_ = 0.0f;
     bool throttle_changed_ = false;
+
+    int strip_slots_ = 1;
+    int strip_slots_max_ = 1;
+    bool strip_slots_changed_ = false;
     // Which slider owns the finger, -1 for none.
     int dragging_slider_ = -1;
 
@@ -133,6 +146,7 @@ private:
         std::string throttle_time;
         std::string throttle_distance;
         std::string throttle_off;
+        std::string strip_length;
     };
     Labels labels_;
     bool labels_loaded_ = false;

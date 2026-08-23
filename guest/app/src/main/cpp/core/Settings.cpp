@@ -16,6 +16,7 @@ constexpr const char* kMinIntervalKey = "min_interval_ms";
 constexpr const char* kMinDistanceKey = "min_distance_dp";
 constexpr const char* kStripVerticalKey = "strip_vertical";
 constexpr const char* kStripExpandedKey = "strip_expanded";
+constexpr const char* kStripSlotsKey = "strip_slots";
 
 std::string trim(std::string s) {
     const auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
@@ -66,6 +67,8 @@ void Settings::load(const char* external_dir) {
             strip_vertical_ = value != "0";
         } else if (key == kStripExpandedKey) {
             strip_expanded_ = value != "0";
+        } else if (key == kStripSlotsKey) {
+            strip_slots_ = std::atoi(value.c_str());
         }
     }
 
@@ -89,6 +92,14 @@ void Settings::set_strip(bool vertical, bool expanded) {
     }
     strip_vertical_ = vertical;
     strip_expanded_ = expanded;
+    save();
+}
+
+void Settings::set_strip_slots(int slots) {
+    if (strip_slots_ == slots) {
+        return;
+    }
+    strip_slots_ = slots;
     save();
 }
 
@@ -119,6 +130,7 @@ void Settings::save() const {
     out << kMinDistanceKey << "=" << min_distance_dp_ << "\n";
     out << kStripVerticalKey << "=" << (strip_vertical_ ? 1 : 0) << "\n";
     out << kStripExpandedKey << "=" << (strip_expanded_ ? 1 : 0) << "\n";
+    out << kStripSlotsKey << "=" << strip_slots_ << "\n";
 }
 
 } // namespace digitiz::guest
