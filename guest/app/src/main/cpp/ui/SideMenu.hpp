@@ -49,12 +49,15 @@ public:
 private:
     Rect handle_rect() const;
     Rect panel_rect() const;
-    Rect mode_cell(int index) const; // 0 = draw, 1 = pan
+    // Two settings rows of the same shape: a name on the left, the current
+    // value on the right, tap anywhere on the row to change it.
+    Rect mode_row() const;
+    Rect mode_value_pill() const;
     Rect auto_launch_row() const;
     Rect auto_launch_switch() const;
 
-    void draw_draw_glyph(UiRenderer& ui, Rect cell, float alpha) const;
-    void draw_pan_glyph(UiRenderer& ui, Rect cell, float alpha) const;
+    void draw_mode_row(UiRenderer& ui, float alpha) const;
+    void draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color) const;
     void draw_auto_launch_row(UiRenderer& ui, float alpha) const;
 
     int surface_w_ = 0;

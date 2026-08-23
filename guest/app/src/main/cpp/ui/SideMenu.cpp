@@ -72,24 +72,22 @@ Rect SideMenu::panel_rect() const {
     };
 }
 
-Rect SideMenu::mode_cell(int index) const {
+Rect SideMenu::mode_row() const {
     const Rect panel = panel_rect();
     const float pad = 16.0f * density_;
-    const float gap = 10.0f * density_;
-    // Below the title and the section heading.
-    const float top = 96.0f * density_;
-    const float height = 84.0f * density_;
-    const float width = (panel.w - pad * 2.0f - gap) * 0.5f;
+    return Rect{panel.x + pad, 62.0f * density_, panel.w - pad * 2.0f, 56.0f * density_};
+}
 
-    return Rect{panel.x + pad + static_cast<float>(index) * (width + gap), top, width, height};
+Rect SideMenu::mode_value_pill() const {
+    const Rect row = mode_row();
+    const float w = 118.0f * density_;
+    const float h = 36.0f * density_;
+    return Rect{row.x + row.w - w - 10.0f * density_, row.y + (row.h - h) * 0.5f, w, h};
 }
 
 Rect SideMenu::auto_launch_row() const {
-    const Rect panel = panel_rect();
-    const Rect cells = mode_cell(0);
-    const float pad = 16.0f * density_;
-    return Rect{panel.x + pad, cells.y + cells.h + 20.0f * density_, panel.w - pad * 2.0f,
-                56.0f * density_};
+    const Rect above = mode_row();
+    return Rect{above.x, above.y + above.h + 12.0f * density_, above.w, above.h};
 }
 
 Rect SideMenu::auto_launch_switch() const {
@@ -117,22 +115,14 @@ bool SideMenu::hit_test(core::Vec2 p) {
     if (progress_ > 0.01f && panel_rect().contains(p)) {
         // Only act on the switch once the drawer has essentially arrived, so a
         // tap during the slide does not land on a cell that has moved.
+        // The whole row is the target, not just the control on its right: a
+        // 36dp pill is a small thing to hit with a thumb.
         if (progress_ > 0.9f) {
-            for (int i = 0; i < 2; ++i) {
-                if (!mode_cell(i).contains(p)) {
-                    continue;
-                }
-                const InputMode picked = i == 0 ? InputMode::Draw : InputMode::Pan;
-                if (picked != mode_) {
-                    mode_ = picked;
-                    mode_changed_ = true;
-                }
-                break;
-            }
-
-            // The whole row is the target, not just the switch: a 52dp switch
-            // is a small thing to hit with a thumb.
-            if (auto_launch_row().contains(p)) {
+            if (mode_row().contains(p)) {
+                // Only two modes, so a tap flips rather than picking.
+                mode_ = mode_ == InputMode::Draw ? InputMode::Pan : InputMode::Draw;
+                mode_changed_ = true;
+            } else if (auto_launch_row().contains(p)) {
                 auto_launch_ = !auto_launch_;
                 auto_launch_changed_ = true;
             }
@@ -148,33 +138,36 @@ bool SideMenu::hit_test(core::Vec2 p) {
     return false;
 }
 
-// Glyphs sit in the upper part of the cell; the label goes underneath.
-namespace {
-float glyph_center_y(Rect cell) {
-    return cell.y + cell.h * 0.34f;
+// A dot for Draw — one point, which is what a stroke puts on the PC — and a
+// cross for Pan, read as "move in any direction".
+void SideMenu::draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color) const {
+    if (mode_ == InputMode::Draw) {
+        const float d = 12.0f * density_;
+        ui.rounded_rect(Rect{cx - d * 0.5f, cy - d * 0.5f, d, d}, d * 0.5f, color);
+        return;
+    }
+
+    const float len = 18.0f * density_;
+    const float bar = 3.0f * density_;
+    ui.rounded_rect(Rect{cx - len * 0.5f, cy - bar * 0.5f, len, bar}, bar * 0.5f, color);
+    ui.rounded_rect(Rect{cx - bar * 0.5f, cy - len * 0.5f, bar, len}, bar * 0.5f, color);
 }
-} // namespace
 
-// A filled dot: one point, which is what a stroke puts on the PC.
-void SideMenu::draw_draw_glyph(UiRenderer& ui, Rect cell, float alpha) const {
-    const float d = 14.0f * density_;
-    const Color c = mode_ == InputMode::Draw ? Color{1.0f, 1.0f, 1.0f, alpha}
-                                             : Color{kIdleGlyph.r, kIdleGlyph.g, kIdleGlyph.b, alpha};
-    ui.rounded_rect(Rect{cell.x + (cell.w - d) * 0.5f, glyph_center_y(cell) - d * 0.5f, d, d},
-                    d * 0.5f, c);
-}
+void SideMenu::draw_mode_row(UiRenderer& ui, float alpha) const {
+    const Rect row = mode_row();
+    ui.rounded_rect(row, 12.0f * density_, Color{0.16f, 0.17f, 0.21f, 0.9f * alpha});
 
-// A cross, read as "move in any direction".
-void SideMenu::draw_pan_glyph(UiRenderer& ui, Rect cell, float alpha) const {
-    const float len = 22.0f * density_;
-    const float bar = 4.0f * density_;
-    const Color c = mode_ == InputMode::Pan ? Color{1.0f, 1.0f, 1.0f, alpha}
-                                            : Color{kIdleGlyph.r, kIdleGlyph.g, kIdleGlyph.b, alpha};
+    // The pill carries the current value. Green when strokes reach the PC,
+    // neutral when they do not — the same reading as the grid tint.
+    const Rect pill = mode_value_pill();
+    const bool drawing = mode_ == InputMode::Draw;
+    ui.rounded_rect(pill, pill.h * 0.5f,
+                    drawing ? Color{kAccent.r, kAccent.g, kAccent.b, 0.95f * alpha}
+                            : Color{0.26f, 0.27f, 0.32f, 0.95f * alpha});
 
-    const float cx = cell.x + cell.w * 0.5f;
-    const float cy = glyph_center_y(cell);
-    ui.rounded_rect(Rect{cx - len * 0.5f, cy - bar * 0.5f, len, bar}, bar * 0.5f, c);
-    ui.rounded_rect(Rect{cx - bar * 0.5f, cy - len * 0.5f, bar, len}, bar * 0.5f, c);
+    draw_mode_glyph(ui, pill.x + 20.0f * density_, pill.y + pill.h * 0.5f,
+                    drawing ? Color{1.0f, 1.0f, 1.0f, alpha}
+                            : Color{kIdleGlyph.r, kIdleGlyph.g, kIdleGlyph.b, alpha});
 }
 
 // "The PC may open this app by itself": a phone with something arriving at it,
@@ -245,27 +238,24 @@ void SideMenu::draw_labels(TextRenderer& text) const {
     text.draw(labels_.title, panel.x + pad, 20.0f * density_, 17.0f * density_,
               Color{0.92f, 0.94f, 0.98f, a}, TextAlign::Left, true);
 
-    text.draw(labels_.input_mode, panel.x + pad, 62.0f * density_, 12.0f * density_,
-              Color{0.55f, 0.60f, 0.70f, a});
+    // Two rows of the same shape: setting name left, current value right.
+    const float text_size = 14.0f * density_;
+    const float half_line = 10.0f * density_;
 
-    // Mode labels sit under their glyph, inside the cell.
-    for (int i = 0; i < 2; ++i) {
-        const Rect cell = mode_cell(i);
-        const bool active = (i == 0) == (mode_ == InputMode::Draw);
-        const std::string& label = i == 0 ? labels_.draw : labels_.pan;
+    const Rect mode = mode_row();
+    text.draw(labels_.input_mode, mode.x + 16.0f * density_, mode.y + mode.h * 0.5f - half_line,
+              text_size, Color{0.80f, 0.84f, 0.90f, a});
 
-        text.draw(label, cell.x + cell.w * 0.5f, cell.y + cell.h * 0.58f, 14.0f * density_,
-                  active ? Color{1.0f, 1.0f, 1.0f, a} : Color{0.66f, 0.70f, 0.78f, a},
-                  TextAlign::Center);
-    }
+    const Rect pill = mode_value_pill();
+    const bool drawing = mode_ == InputMode::Draw;
+    text.draw(drawing ? labels_.draw : labels_.pan, pill.x + 36.0f * density_,
+              pill.y + pill.h * 0.5f - half_line, text_size,
+              drawing ? Color{1.0f, 1.0f, 1.0f, a} : Color{0.80f, 0.84f, 0.90f, a});
 
     const Rect row = auto_launch_row();
-    const Rect sw = auto_launch_switch();
-    const float label_x = row.x + 62.0f * density_;
-    text.draw(labels_.auto_launch, label_x, row.y + (row.h - 20.0f * density_) * 0.5f,
-              14.0f * density_,
+    text.draw(labels_.auto_launch, row.x + 62.0f * density_, row.y + row.h * 0.5f - half_line,
+              text_size,
               auto_launch_ ? Color{0.90f, 0.93f, 0.97f, a} : Color{0.60f, 0.63f, 0.70f, a});
-    (void)sw;
 }
 
 void SideMenu::draw(UiRenderer& ui) const {
@@ -274,21 +264,7 @@ void SideMenu::draw(UiRenderer& ui) const {
         ui.rounded_rect(panel, 18.0f * density_,
                         Color{0.11f, 0.12f, 0.145f, 0.96f * progress_ + 0.04f});
 
-        for (int i = 0; i < 2; ++i) {
-            const Rect cell = mode_cell(i);
-            const bool active = (i == 0) == (mode_ == InputMode::Draw);
-
-            ui.rounded_rect(cell, 12.0f * density_,
-                            active ? Color{kAccent.r, kAccent.g, kAccent.b, 0.85f * progress_}
-                                   : Color{0.18f, 0.19f, 0.23f, 0.9f * progress_});
-            if (active) {
-                ui.rounded_rect_outline(cell, 12.0f * density_, 1.5f * density_,
-                                        Color{0.55f, 0.90f, 0.72f, progress_});
-            }
-        }
-
-        draw_draw_glyph(ui, mode_cell(0), progress_);
-        draw_pan_glyph(ui, mode_cell(1), progress_);
+        draw_mode_row(ui, progress_);
         draw_auto_launch_row(ui, progress_);
     }
 
