@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace digitiz::guest {
 
@@ -15,6 +16,11 @@ float ease_out(float t) {
 
 const Color kAccent{0.30f, 0.62f, 0.46f, 1.0f};
 const Color kIdleGlyph{0.62f, 0.66f, 0.74f, 1.0f};
+
+// Ranges for the decimation sliders. Both start at zero, which is "send
+// everything" — the behaviour before this existed.
+constexpr int kMaxIntervalMs = 40;
+constexpr float kMaxDistanceDp = 16.0f;
 
 } // namespace
 
@@ -50,6 +56,62 @@ bool SideMenu::take_auto_launch_change() noexcept {
     const bool changed = auto_launch_changed_;
     auto_launch_changed_ = false;
     return changed;
+}
+
+void SideMenu::set_throttle(int interval_ms, float distance_dp) noexcept {
+    min_interval_ms_ = std::clamp(interval_ms, 0, kMaxIntervalMs);
+    min_distance_dp_ = std::clamp(distance_dp, 0.0f, kMaxDistanceDp);
+}
+
+bool SideMenu::take_throttle_change() noexcept {
+    const bool changed = throttle_changed_;
+    throttle_changed_ = false;
+    return changed;
+}
+
+Rect SideMenu::throttle_row(int index) const {
+    const Rect above = auto_launch_row();
+    // Heights are already in pixels here; multiplying the whole expression by
+    // density again is the easy mistake.
+    const float h = 64.0f * density_;
+    const float gap = 8.0f * density_;
+    const float top = above.y + above.h + 12.0f * density_ + static_cast<float>(index) * (h + gap);
+    return Rect{above.x, top, above.w, h};
+}
+
+Rect SideMenu::throttle_track(int index) const {
+    const Rect row = throttle_row(index);
+    const float pad = 16.0f * density_;
+    return Rect{row.x + pad, row.y + row.h - 22.0f * density_, row.w - pad * 2.0f,
+                6.0f * density_};
+}
+
+float SideMenu::throttle_fraction(int index) const {
+    if (index == 0) {
+        return static_cast<float>(min_interval_ms_) / static_cast<float>(kMaxIntervalMs);
+    }
+    return min_distance_dp_ / kMaxDistanceDp;
+}
+
+void SideMenu::set_throttle_from_x(int index, float x) {
+    const Rect track = throttle_track(index);
+    const float t = std::clamp((x - track.x) / track.w, 0.0f, 1.0f);
+
+    if (index == 0) {
+        const int ms = static_cast<int>(std::lround(t * kMaxIntervalMs));
+        if (ms != min_interval_ms_) {
+            min_interval_ms_ = ms;
+            throttle_changed_ = true;
+        }
+        return;
+    }
+
+    // Half-dp steps: finer than that is not something a thumb can aim at.
+    const float dp = std::round(t * kMaxDistanceDp * 2.0f) * 0.5f;
+    if (dp != min_distance_dp_) {
+        min_distance_dp_ = dp;
+        throttle_changed_ = true;
+    }
 }
 
 Rect SideMenu::handle_rect() const {
@@ -125,6 +187,16 @@ bool SideMenu::hit_test(core::Vec2 p) {
             } else if (auto_launch_row().contains(p)) {
                 auto_launch_ = !auto_launch_;
                 auto_launch_changed_ = true;
+            } else {
+                for (int i = 0; i < 2; ++i) {
+                    if (!throttle_row(i).contains(p)) {
+                        continue;
+                    }
+                    // Jump to where the finger landed, then track it.
+                    dragging_slider_ = i;
+                    set_throttle_from_x(i, static_cast<float>(p.x));
+                    break;
+                }
             }
         }
         return true; // swallow every tap inside the drawer
@@ -168,6 +240,27 @@ void SideMenu::draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color,
         break;
     }
     }
+}
+
+void SideMenu::draw_throttle_row(UiRenderer& ui, int index, float alpha) const {
+    const Rect row = throttle_row(index);
+    ui.rounded_rect(row, 12.0f * density_, Color{0.16f, 0.17f, 0.21f, 0.9f * alpha});
+
+    const Rect track = throttle_track(index);
+    const float t = throttle_fraction(index);
+    const bool off = t <= 0.0f;
+
+    ui.rounded_rect(track, track.h * 0.5f, Color{0.26f, 0.27f, 0.32f, alpha});
+    if (!off) {
+        ui.rounded_rect(Rect{track.x, track.y, track.w * t, track.h}, track.h * 0.5f,
+                        Color{kAccent.r, kAccent.g, kAccent.b, alpha});
+    }
+
+    const float knob = 20.0f * density_;
+    ui.rounded_rect(Rect{track.x + track.w * t - knob * 0.5f, track.y + track.h * 0.5f - knob * 0.5f,
+                         knob, knob},
+                    knob * 0.5f,
+                    off ? Color{0.62f, 0.66f, 0.74f, alpha} : Color{0.96f, 0.97f, 1.0f, alpha});
 }
 
 void SideMenu::draw_mode_row(UiRenderer& ui, float alpha) const {
@@ -232,6 +325,21 @@ void SideMenu::draw_auto_launch_row(UiRenderer& ui, float alpha) const {
                     Color{0.96f, 0.97f, 1.0f, alpha});
 }
 
+void SideMenu::drag(core::Vec2 p) {
+    if (dragging_slider_ >= 0) {
+        // Tracked by x only: the finger wandering off the track vertically
+        // should not abandon the drag.
+        set_throttle_from_x(dragging_slider_, static_cast<float>(p.x));
+    }
+}
+
+void SideMenu::release(core::Vec2 p) {
+    if (dragging_slider_ >= 0) {
+        set_throttle_from_x(dragging_slider_, static_cast<float>(p.x));
+        dragging_slider_ = -1;
+    }
+}
+
 void SideMenu::load_labels(TextRenderer& text) {
     if (labels_loaded_) {
         return;
@@ -242,6 +350,9 @@ void SideMenu::load_labels(TextRenderer& text) {
     labels_.slide = text.localized("menu_mode_slide");
     labels_.pan = text.localized("menu_mode_pan");
     labels_.auto_launch = text.localized("menu_auto_launch");
+    labels_.throttle_time = text.localized("menu_throttle_time");
+    labels_.throttle_distance = text.localized("menu_throttle_distance");
+    labels_.throttle_off = text.localized("menu_throttle_off");
     labels_loaded_ = true;
 }
 
@@ -280,6 +391,29 @@ void SideMenu::draw_labels(TextRenderer& text) const {
     text.draw(labels_.auto_launch, row.x + 62.0f * density_, row.y + row.h * 0.5f - half_line,
               text_size,
               auto_launch_ ? Color{0.90f, 0.93f, 0.97f, a} : Color{0.60f, 0.63f, 0.70f, a});
+
+    // Decimation sliders: name on the left, value on the right, track below.
+    for (int i = 0; i < 2; ++i) {
+        const Rect slider_row = throttle_row(i);
+        const float pad = 16.0f * density_;
+        const float label_y = slider_row.y + 12.0f * density_;
+        const bool off = throttle_fraction(i) <= 0.0f;
+
+        text.draw(i == 0 ? labels_.throttle_time : labels_.throttle_distance, slider_row.x + pad,
+                  label_y, text_size, Color{0.80f, 0.84f, 0.90f, a});
+
+        char value[32];
+        if (off) {
+            std::snprintf(value, sizeof(value), "%s", labels_.throttle_off.c_str());
+        } else if (i == 0) {
+            std::snprintf(value, sizeof(value), "%d ms", min_interval_ms_);
+        } else {
+            std::snprintf(value, sizeof(value), "%.1f dp", static_cast<double>(min_distance_dp_));
+        }
+        text.draw(value, slider_row.x + slider_row.w - pad, label_y, text_size,
+                  off ? Color{0.55f, 0.58f, 0.66f, a} : Color{0.55f, 0.92f, 0.75f, a},
+                  TextAlign::Right);
+    }
 }
 
 void SideMenu::draw(UiRenderer& ui) const {
@@ -290,6 +424,8 @@ void SideMenu::draw(UiRenderer& ui) const {
 
         draw_mode_row(ui, progress_);
         draw_auto_launch_row(ui, progress_);
+        draw_throttle_row(ui, 0, progress_);
+        draw_throttle_row(ui, 1, progress_);
     }
 
     const Rect handle = handle_rect();

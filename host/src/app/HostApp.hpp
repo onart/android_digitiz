@@ -98,6 +98,10 @@ private:
 
     // Guest timestamps are on the phone's monotonic clock, which shares no
     // epoch with ours, so they have to be translated before they mean anything.
+    // Pointer messages in the current stroke. The decimation settings on the
+    // guest are tuned by watching this.
+    int stroke_samples_ = 0;
+
     ClockSync clock_;
     // Finger event on the phone -> message decoded here.
     LatencyStats link_latency_;

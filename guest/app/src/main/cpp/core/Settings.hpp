@@ -26,6 +26,14 @@ public:
     bool auto_launch() const noexcept { return auto_launch_; }
     void set_auto_launch(bool on);
 
+    // Pointer decimation while drawing. A sample is sent only once it is both
+    // far enough and late enough, which thins a stroke into evenly spaced
+    // points. Note this only decimates — the smoothing itself is the host's
+    // spline; the two are meant to work together.
+    int min_interval_ms() const noexcept { return min_interval_ms_; }
+    float min_distance_dp() const noexcept { return min_distance_dp_; }
+    void set_throttle(int interval_ms, float distance_dp);
+
     const std::string& path() const noexcept { return path_; }
 
 private:
@@ -33,6 +41,8 @@ private:
 
     std::string path_;
     bool auto_launch_ = true;
+    int min_interval_ms_ = 0;
+    float min_distance_dp_ = 0.0f;
 };
 
 } // namespace digitiz::guest

@@ -1,6 +1,7 @@
 #include "core/Settings.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -11,6 +12,8 @@ namespace digitiz::guest {
 namespace {
 
 constexpr const char* kAutoLaunchKey = "auto_launch";
+constexpr const char* kMinIntervalKey = "min_interval_ms";
+constexpr const char* kMinDistanceKey = "min_distance_dp";
 
 std::string trim(std::string s) {
     const auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
@@ -53,11 +56,25 @@ void Settings::load(const char* external_dir) {
 
         if (key == kAutoLaunchKey) {
             auto_launch_ = value != "0";
+        } else if (key == kMinIntervalKey) {
+            min_interval_ms_ = std::atoi(value.c_str());
+        } else if (key == kMinDistanceKey) {
+            min_distance_dp_ = static_cast<float>(std::atof(value.c_str()));
         }
     }
 
-    DZ_INFO("settings loaded from %s (auto_launch=%d)", path_.c_str(),
-            auto_launch_ ? 1 : 0);
+    DZ_INFO("settings loaded from %s (auto_launch=%d, min_interval=%d ms, min_distance=%.1f dp)",
+            path_.c_str(), auto_launch_ ? 1 : 0, min_interval_ms_,
+            static_cast<double>(min_distance_dp_));
+}
+
+void Settings::set_throttle(int interval_ms, float distance_dp) {
+    if (min_interval_ms_ == interval_ms && min_distance_dp_ == distance_dp) {
+        return;
+    }
+    min_interval_ms_ = interval_ms;
+    min_distance_dp_ = distance_dp;
+    save();
 }
 
 void Settings::set_auto_launch(bool on) {
@@ -83,6 +100,8 @@ void Settings::save() const {
     }
     out << "# digitiz guest settings\n";
     out << kAutoLaunchKey << "=" << (auto_launch_ ? 1 : 0) << "\n";
+    out << kMinIntervalKey << "=" << min_interval_ms_ << "\n";
+    out << kMinDistanceKey << "=" << min_distance_dp_ << "\n";
 }
 
 } // namespace digitiz::guest

@@ -28,8 +28,12 @@ App::App(android_app* app)
     // settings file needs no JNI.
     settings_.load(app->activity != nullptr ? app->activity->externalDataPath : nullptr);
     menu_.set_auto_launch(settings_.auto_launch());
+    menu_.set_throttle(settings_.min_interval_ms(), settings_.min_distance_dp());
+    apply_throttle();
 
-    router_.set_ui_hit_test([this](core::Vec2 p) { return menu_.hit_test(p); });
+    router_.set_ui_handlers([this](core::Vec2 p) { return menu_.hit_test(p); },
+                            [this](core::Vec2 p) { menu_.drag(p); },
+                            [this](core::Vec2 p) { menu_.release(p); });
     router_.set_pc_point_test([this](core::Vec2 pc) { return pc_point_on_screen(pc); });
 
     link_.set_handlers(
@@ -93,6 +97,9 @@ void App::on_command(std::int32_t cmd) {
                 if (dpi > 0) {
                     density_ = static_cast<float>(dpi) / 160.0f;
                     router_.set_density(density_);
+                    // The distance threshold is stored in dp, so it cannot be
+                    // converted until the real density is known.
+                    apply_throttle();
                 }
             }
             menu_.layout(gl_.width(), gl_.height(), density_);
@@ -170,6 +177,10 @@ void App::frame() {
         // not running, so it has to be current before the app closes.
         settings_.set_auto_launch(menu_.auto_launch());
     }
+    if (menu_.take_throttle_change()) {
+        settings_.set_throttle(menu_.min_interval_ms(), menu_.min_distance_dp());
+        apply_throttle();
+    }
 
     menu_.advance(dt);
     render();
@@ -215,6 +226,14 @@ void App::apply_pending() {
     if (fit) {
         fit_view_to_desktop();
     }
+}
+
+void App::apply_throttle() {
+    router_.set_min_interval_us(static_cast<std::uint64_t>(settings_.min_interval_ms()) * 1000ull);
+    // Stored in dp so the setting means the same thing on any screen; the
+    // router compares raw surface pixels.
+    router_.set_min_distance_px(static_cast<double>(settings_.min_distance_dp()) *
+                                static_cast<double>(density_));
 }
 
 bool App::pc_point_on_screen(core::Vec2 pc) const {

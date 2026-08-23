@@ -22,8 +22,10 @@ public:
     void advance(double dt_seconds);
 
     // True if the point belongs to the menu, in which case it must not reach
-    // the digitizer. Also drives the toggle and the mode switch.
+    // the digitizer, and the menu captures the finger until it lifts.
     bool hit_test(core::Vec2 p);
+    void drag(core::Vec2 p);
+    void release(core::Vec2 p);
 
     // Shapes and text use different programs, so they are drawn in two passes
     // rather than interleaved.
@@ -46,6 +48,12 @@ public:
     bool auto_launch() const noexcept { return auto_launch_; }
     bool take_auto_launch_change() noexcept;
 
+    // Pointer decimation while drawing, in milliseconds and dp.
+    void set_throttle(int interval_ms, float distance_dp) noexcept;
+    int min_interval_ms() const noexcept { return min_interval_ms_; }
+    float min_distance_dp() const noexcept { return min_distance_dp_; }
+    bool take_throttle_change() noexcept;
+
 private:
     Rect handle_rect() const;
     Rect panel_rect() const;
@@ -55,6 +63,13 @@ private:
     Rect mode_value_pill() const;
     Rect auto_launch_row() const;
     Rect auto_launch_switch() const;
+
+    // 0 = time, 1 = distance.
+    Rect throttle_row(int index) const;
+    Rect throttle_track(int index) const;
+    float throttle_fraction(int index) const;
+    void set_throttle_from_x(int index, float x);
+    void draw_throttle_row(UiRenderer& ui, int index, float alpha) const;
 
     void draw_mode_row(UiRenderer& ui, float alpha) const;
     void draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color, float scale = 1.0f) const;
@@ -78,6 +93,12 @@ private:
     bool auto_launch_ = true;
     bool auto_launch_changed_ = false;
 
+    int min_interval_ms_ = 0;
+    float min_distance_dp_ = 0.0f;
+    bool throttle_changed_ = false;
+    // Which slider owns the finger, -1 for none.
+    int dragging_slider_ = -1;
+
     struct Labels {
         std::string title;
         std::string input_mode;
@@ -85,6 +106,9 @@ private:
         std::string slide;
         std::string pan;
         std::string auto_launch;
+        std::string throttle_time;
+        std::string throttle_distance;
+        std::string throttle_off;
     };
     Labels labels_;
     bool labels_loaded_ = false;

@@ -10,6 +10,9 @@
     <string name="menu_mode_slide">Slide</string>
     <string name="menu_mode_pan">View</string>
     <string name="menu_auto_launch">Auto-launch from PC</string>
+    <string name="menu_throttle_time">Min interval</string>
+    <string name="menu_throttle_distance">Min distance</string>
+    <string name="menu_throttle_off">off</string>
     <string name="status_waiting">Not connected</string>
     <string name="status_ready">Connected, injection off</string>
     <string name="status_live">Live</string>

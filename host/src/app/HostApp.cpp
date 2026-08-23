@@ -140,6 +140,11 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
         }
         const std::uint64_t arrived_us = now_us();
 
+        if (p.action == proto::PointerAction::Down) {
+            stroke_samples_ = 0;
+        }
+        ++stroke_samples_;
+
         // Stroke boundaries are logged; MOVE is not, or a single drag would
         // bury everything else. The pipeline counters cover the volume.
         if (p.action != proto::PointerAction::Move) {
@@ -178,9 +183,9 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
         if (p.action == proto::PointerAction::Up || p.action == proto::PointerAction::Cancel) {
             std::lock_guard lock(session_mutex_);
             if (!link_latency_.empty()) {
-                DZ_DEBUG("stroke ended: event-to-host %.1f ms avg, %.1f max (%zu samples); "
+                DZ_DEBUG("stroke ended: %d pointer(s); event-to-host %.1f ms avg, %.1f max; "
                          "injection %.0f us avg",
-                         link_latency_.average(), link_latency_.max(), link_latency_.size(),
+                         stroke_samples_, link_latency_.average(), link_latency_.max(),
                          inject_latency_.average() * 1000.0);
             }
         }

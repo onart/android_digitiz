@@ -62,6 +62,7 @@ private:
     void send_hello();
     void fit_view_to_desktop();
     bool pc_point_on_screen(core::Vec2 pc) const;
+    void apply_throttle();
 
     android_app* app_;
     GlContext gl_;

@@ -67,8 +67,16 @@ public:
     void set_density(float density) noexcept { density_ = density > 0.0f ? density : 1.0f; }
 
     // Pointer events consumed by widgets before routing, so a tap on the side
-    // menu does not also draw on the PC.
-    void set_ui_hit_test(std::function<bool(core::Vec2)> hit) { ui_hit_ = std::move(hit); }
+    // menu does not also draw on the PC. A widget that returns true from the
+    // hit test captures the finger: every later move and the release go to it
+    // instead, which is what a slider needs.
+    void set_ui_handlers(std::function<bool(core::Vec2)> hit,
+                         std::function<void(core::Vec2)> drag,
+                         std::function<void(core::Vec2)> release) {
+        ui_hit_ = std::move(hit);
+        ui_drag_ = std::move(drag);
+        ui_release_ = std::move(release);
+    }
 
     // Answers whether a PC-space point actually lands on a screen. The union
     // of the monitors, not the bounding box: two monitors of different heights
@@ -96,6 +104,9 @@ private:
     core::ViewTransform* view_;
     PointerSink sink_;
     std::function<bool(core::Vec2)> ui_hit_;
+    std::function<void(core::Vec2)> ui_drag_;
+    std::function<void(core::Vec2)> ui_release_;
+    bool ui_captured_ = false;
     std::function<bool(core::Vec2)> on_screen_;
 
     InputMode mode_ = InputMode::Draw;

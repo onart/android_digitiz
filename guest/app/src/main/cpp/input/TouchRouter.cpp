@@ -107,9 +107,10 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     case AMOTION_EVENT_ACTION_DOWN: {
         const core::Vec2 p = pointer_pos(event, 0);
 
-        // A widget swallowed it. No stroke is opened, so every later MOVE for
-        // this finger falls through to nothing and nothing reaches the PC.
+        // A widget swallowed it and now owns this finger until it lifts. No
+        // stroke is opened, so nothing reaches the PC either way.
         if (ui_hit_ && ui_hit_(p)) {
+            ui_captured_ = true;
             return;
         }
 
@@ -158,6 +159,12 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     }
 
     case AMOTION_EVENT_ACTION_MOVE: {
+        if (ui_captured_) {
+            if (ui_drag_ && event.pointerCount > 0) {
+                ui_drag_(pointer_pos(event, 0));
+            }
+            break;
+        }
         if (gesture_active_) {
             update_gesture(event);
             break;
@@ -228,6 +235,13 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     }
 
     case AMOTION_EVENT_ACTION_UP: {
+        if (ui_captured_) {
+            if (ui_release_ && event.pointerCount > 0) {
+                ui_release_(pointer_pos(event, 0));
+            }
+            ui_captured_ = false;
+            break;
+        }
         if (slide_active_) {
             const std::int32_t index = pointer_index_of(event.action);
             slide_end(pointer_pos(event, static_cast<std::uint32_t>(index >= 0 ? index : 0)),
@@ -253,6 +267,12 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
         cancel_stroke();
         gesture_active_ = false;
         slide_active_ = false;
+        if (ui_captured_) {
+            if (ui_release_ && event.pointerCount > 0) {
+                ui_release_(pointer_pos(event, 0));
+            }
+            ui_captured_ = false;
+        }
         break;
     }
 
