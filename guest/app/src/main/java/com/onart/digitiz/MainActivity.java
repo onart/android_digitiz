@@ -17,6 +17,7 @@ import android.view.KeyEvent;
 import android.view.Surface;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -215,9 +216,14 @@ public class MainActivity extends GameActivity {
         kinds.check(kind + 1);
         root.addView(kinds);
 
+        // The app is locked to landscape, and in landscape an IME defaults to
+        // its fullscreen extract editor -- which covers the very dialog the
+        // text is being typed into. NO_EXTRACT_UI keeps the keyboard docked so
+        // the fields, the hint and the buttons all stay visible.
         final EditText nameField = new EditText(this);
         nameField.setHint(R.string.button_field_name);
         nameField.setSingleLine(true);
+        nameField.setImeOptions(EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_NEXT);
         nameField.setText(label);
         root.addView(nameField);
 
@@ -228,6 +234,7 @@ public class MainActivity extends GameActivity {
         final EditText valueField = new EditText(this);
         valueField.setSingleLine(true);
         valueField.setInputType(InputType.TYPE_CLASS_TEXT);
+        valueField.setImeOptions(EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_DONE);
         root.addView(valueField);
 
         // Seeded from whichever fields this kind of button actually uses, so
