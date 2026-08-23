@@ -119,8 +119,8 @@ bool SideMenu::hit_test(core::Vec2 p) {
         // 36dp pill is a small thing to hit with a thumb.
         if (progress_ > 0.9f) {
             if (mode_row().contains(p)) {
-                // Only two modes, so a tap flips rather than picking.
-                mode_ = mode_ == InputMode::Draw ? InputMode::Pan : InputMode::Draw;
+                // Few enough modes that cycling beats a picker.
+                mode_ = next_mode(mode_);
                 mode_changed_ = true;
             } else if (auto_launch_row().contains(p)) {
                 auto_launch_ = !auto_launch_;
@@ -138,36 +138,54 @@ bool SideMenu::hit_test(core::Vec2 p) {
     return false;
 }
 
-// A dot for Draw — one point, which is what a stroke puts on the PC — and a
-// cross for Pan, read as "move in any direction".
-void SideMenu::draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color) const {
-    if (mode_ == InputMode::Draw) {
-        const float d = 12.0f * density_;
+// A dot for Draw — one point, which is what a stroke puts on the PC. A knob on
+// a track for Slide, which is what the finger does there. A cross for Pan,
+// read as "move in any direction".
+void SideMenu::draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color,
+                               float scale) const {
+    const float unit = density_ * scale;
+    switch (mode_) {
+    case InputMode::Draw: {
+        const float d = 12.0f * unit;
         ui.rounded_rect(Rect{cx - d * 0.5f, cy - d * 0.5f, d, d}, d * 0.5f, color);
-        return;
+        break;
     }
-
-    const float len = 18.0f * density_;
-    const float bar = 3.0f * density_;
-    ui.rounded_rect(Rect{cx - len * 0.5f, cy - bar * 0.5f, len, bar}, bar * 0.5f, color);
-    ui.rounded_rect(Rect{cx - bar * 0.5f, cy - len * 0.5f, bar, len}, bar * 0.5f, color);
+    case InputMode::Slide: {
+        const float len = 20.0f * unit;
+        const float track = 3.0f * unit;
+        const float knob = 10.0f * unit;
+        ui.rounded_rect(Rect{cx - len * 0.5f, cy - track * 0.5f, len, track}, track * 0.5f,
+                        Color{color.r, color.g, color.b, color.a * 0.55f});
+        ui.rounded_rect(Rect{cx + len * 0.5f - knob, cy - knob * 0.5f, knob, knob}, knob * 0.5f,
+                        color);
+        break;
+    }
+    case InputMode::Pan: {
+        const float len = 18.0f * unit;
+        const float bar = 3.0f * unit;
+        ui.rounded_rect(Rect{cx - len * 0.5f, cy - bar * 0.5f, len, bar}, bar * 0.5f, color);
+        ui.rounded_rect(Rect{cx - bar * 0.5f, cy - len * 0.5f, bar, len}, bar * 0.5f, color);
+        break;
+    }
+    }
 }
 
 void SideMenu::draw_mode_row(UiRenderer& ui, float alpha) const {
     const Rect row = mode_row();
     ui.rounded_rect(row, 12.0f * density_, Color{0.16f, 0.17f, 0.21f, 0.9f * alpha});
 
-    // The pill carries the current value. Green when strokes reach the PC,
-    // neutral when they do not — the same reading as the grid tint.
+    // The pill carries the current value. Green whenever the finger reaches
+    // the PC at all, neutral when it only moves the view — the same reading as
+    // the grid tint.
     const Rect pill = mode_value_pill();
-    const bool drawing = mode_ == InputMode::Draw;
+    const bool reaches_pc = mode_ != InputMode::Pan;
     ui.rounded_rect(pill, pill.h * 0.5f,
-                    drawing ? Color{kAccent.r, kAccent.g, kAccent.b, 0.95f * alpha}
-                            : Color{0.26f, 0.27f, 0.32f, 0.95f * alpha});
+                    reaches_pc ? Color{kAccent.r, kAccent.g, kAccent.b, 0.95f * alpha}
+                               : Color{0.26f, 0.27f, 0.32f, 0.95f * alpha});
 
     draw_mode_glyph(ui, pill.x + 20.0f * density_, pill.y + pill.h * 0.5f,
-                    drawing ? Color{1.0f, 1.0f, 1.0f, alpha}
-                            : Color{kIdleGlyph.r, kIdleGlyph.g, kIdleGlyph.b, alpha});
+                    reaches_pc ? Color{1.0f, 1.0f, 1.0f, alpha}
+                               : Color{kIdleGlyph.r, kIdleGlyph.g, kIdleGlyph.b, alpha});
 }
 
 // "The PC may open this app by itself": a phone with something arriving at it,
@@ -221,6 +239,7 @@ void SideMenu::load_labels(TextRenderer& text) {
     labels_.title = text.localized("menu_title");
     labels_.input_mode = text.localized("menu_input_mode");
     labels_.draw = text.localized("menu_mode_draw");
+    labels_.slide = text.localized("menu_mode_slide");
     labels_.pan = text.localized("menu_mode_pan");
     labels_.auto_launch = text.localized("menu_auto_launch");
     labels_loaded_ = true;
@@ -247,10 +266,15 @@ void SideMenu::draw_labels(TextRenderer& text) const {
               text_size, Color{0.80f, 0.84f, 0.90f, a});
 
     const Rect pill = mode_value_pill();
-    const bool drawing = mode_ == InputMode::Draw;
-    text.draw(drawing ? labels_.draw : labels_.pan, pill.x + 36.0f * density_,
-              pill.y + pill.h * 0.5f - half_line, text_size,
-              drawing ? Color{1.0f, 1.0f, 1.0f, a} : Color{0.80f, 0.84f, 0.90f, a});
+    const std::string* value = &labels_.draw;
+    if (mode_ == InputMode::Slide) {
+        value = &labels_.slide;
+    } else if (mode_ == InputMode::Pan) {
+        value = &labels_.pan;
+    }
+    text.draw(*value, pill.x + 36.0f * density_, pill.y + pill.h * 0.5f - half_line, text_size,
+              mode_ != InputMode::Pan ? Color{1.0f, 1.0f, 1.0f, a}
+                                      : Color{0.80f, 0.84f, 0.90f, a});
 
     const Rect row = auto_launch_row();
     text.draw(labels_.auto_launch, row.x + 62.0f * density_, row.y + row.h * 0.5f - half_line,
@@ -272,20 +296,12 @@ void SideMenu::draw(UiRenderer& ui) const {
     ui.rounded_rect(handle, handle.w * 0.45f, Color{0.20f, 0.22f, 0.27f, 0.95f});
 
     // The handle carries the active mode, so the drawer does not have to be
-    // open to know whether a finger will draw.
-    const float cx = handle.x + handle.w * 0.5f;
-    const float cy = handle.y + handle.h * 0.5f;
-    if (mode_ == InputMode::Draw) {
-        const float d = 8.0f * density_;
-        ui.rounded_rect(Rect{cx - d * 0.5f, cy - d * 0.5f, d, d}, d * 0.5f,
-                        Color{kAccent.r + 0.25f, 0.92f, 0.75f, 0.95f});
-    } else {
-        const float len = 14.0f * density_;
-        const float bar = 3.0f * density_;
-        const Color c{0.85f, 0.88f, 0.95f, 0.95f};
-        ui.rounded_rect(Rect{cx - bar * 0.5f, cy - len * 0.5f, bar, len}, bar * 0.5f, c);
-        ui.rounded_rect(Rect{cx - len * 0.5f, cy - bar * 0.5f, len, bar}, bar * 0.5f, c);
-    }
+    // open to know what a finger will do. Same glyph as the pill, shrunk to
+    // fit a 22dp tab.
+    draw_mode_glyph(ui, handle.x + handle.w * 0.5f, handle.y + handle.h * 0.5f,
+                    mode_ == InputMode::Pan ? Color{0.85f, 0.88f, 0.95f, 0.95f}
+                                            : Color{0.55f, 0.92f, 0.75f, 0.95f},
+                    0.62f);
 }
 
 } // namespace digitiz::guest

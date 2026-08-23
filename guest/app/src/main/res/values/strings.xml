@@ -7,7 +7,8 @@
     <string name="menu_title">Digitiz</string>
     <string name="menu_input_mode">Input mode</string>
     <string name="menu_mode_draw">Draw</string>
-    <string name="menu_mode_pan">Move</string>
+    <string name="menu_mode_slide">Slide</string>
+    <string name="menu_mode_pan">View</string>
     <string name="menu_auto_launch">Auto-launch from PC</string>
     <string name="status_waiting">Not connected</string>
     <string name="status_ready">Connected, injection off</string>

@@ -25,6 +25,7 @@ public:
         std::uint64_t protocol_errors = 0; // duplicate DOWN, UP with no DOWN, ...
         std::uint64_t inject_failures = 0;
         std::uint64_t dropped_off_screen = 0;
+        std::uint64_t relative_events = 0;
     };
 
     // Points that land on no display are ignored rather than clamped. The
@@ -58,8 +59,20 @@ private:
     void release_stroke();
     bool on_screen(std::int32_t x, std::int32_t y) const;
 
+    void handle_relative(const proto::Pointer& p);
+    // Moves the tracked position by (dx, dy), refusing to leave the screens.
+    // Each axis is tried on its own so running into an edge slides along it
+    // instead of stopping dead.
+    void advance_relative(double dx, double dy);
+
     IInputInjector* injector_;
     ScreenTest on_screen_;
+
+    // Relative mode tracks the cursor itself. Kept as doubles so a slow drag
+    // at a small scale still accumulates instead of rounding away every event.
+    double rel_x_ = 0.0;
+    double rel_y_ = 0.0;
+    bool rel_seeded_ = false;
     bool enabled_ = false;
     bool down_ = false;
     proto::MouseButton held_ = proto::MouseButton::Left;

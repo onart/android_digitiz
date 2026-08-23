@@ -50,7 +50,20 @@ public:
         return held_[0] || held_[1] || held_[2];
     }
 
-    bool cursor_pos(std::int32_t&, std::int32_t&) const override { return false; }
+    // Where the OS thinks the cursor is. Relative mode reads this to seed
+    // itself, so tests can pretend the user moved a physical mouse.
+    std::int32_t cursor_x = 0;
+    std::int32_t cursor_y = 0;
+    bool cursor_known = true;
+
+    bool cursor_pos(std::int32_t& x, std::int32_t& y) const override {
+        if (!cursor_known) {
+            return false;
+        }
+        x = cursor_x;
+        y = cursor_y;
+        return true;
+    }
 
     std::uint64_t clamped_count() const override { return 0; }
 
@@ -317,6 +330,150 @@ TEST_CASE("without a screen test nothing is dropped") {
 
     REQUIRE(inj.calls.size() == 1);
     CHECK(pipe.stats().dropped_off_screen == 0);
+}
+
+// --- slide (relative) mode -------------------------------------------------
+
+namespace {
+
+proto::Pointer rel(proto::PointerAction a, std::int32_t dx, std::int32_t dy, bool start = false) {
+    proto::Pointer p = ev(a, dx, dy);
+    p.flags = proto::kPointerRelative;
+    if (start) {
+        p.flags |= proto::kPointerGestureStart;
+    }
+    return p;
+}
+
+} // namespace
+
+TEST_CASE("a relative move continues from where the cursor already is") {
+    FakeInjector inj;
+    inj.cursor_x = 800;
+    inj.cursor_y = 400;
+
+    PointerPipeline pipe(inj);
+    pipe.set_enabled(true);
+
+    pipe.handle(rel(proto::PointerAction::Move, 10, -5, true));
+    pipe.handle(rel(proto::PointerAction::Move, 10, -5));
+
+    REQUIRE(inj.calls.size() == 2);
+    CHECK(inj.calls[0] == "move 810,395");
+    CHECK(inj.calls[1] == "move 820,390");
+    CHECK(pipe.stats().relative_events == 2);
+}
+
+TEST_CASE("a moving cursor does not press anything") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+    pipe.set_enabled(true);
+
+    pipe.handle(rel(proto::PointerAction::Move, 5, 5, true));
+    pipe.handle(rel(proto::PointerAction::Up, 0, 0));
+
+    CHECK_FALSE(inj.any_button_down());
+    // The UP with nothing held is expected here, not a protocol error.
+    CHECK(pipe.stats().protocol_errors == 0);
+}
+
+TEST_CASE("a tap clicks wherever the cursor is") {
+    FakeInjector inj;
+    inj.cursor_x = 640;
+    inj.cursor_y = 480;
+
+    PointerPipeline pipe(inj);
+    pipe.set_enabled(true);
+
+    pipe.handle(rel(proto::PointerAction::Down, 0, 0, true));
+    pipe.handle(rel(proto::PointerAction::Up, 0, 0));
+
+    REQUIRE(inj.calls.size() == 2);
+    CHECK(inj.calls[0] == "down LEFT 640,480");
+    CHECK(inj.calls[1] == "up LEFT 640,480");
+    CHECK_FALSE(inj.any_button_down());
+}
+
+TEST_CASE("each gesture re-reads the cursor, so a physical mouse move is not fought") {
+    FakeInjector inj;
+    inj.cursor_x = 100;
+    inj.cursor_y = 100;
+
+    PointerPipeline pipe(inj);
+    pipe.set_enabled(true);
+
+    pipe.handle(rel(proto::PointerAction::Move, 50, 0, true));
+    CHECK(inj.calls.back() == "move 150,100");
+
+    // The user grabs the mouse and drags the cursor elsewhere.
+    inj.cursor_x = 900;
+    inj.cursor_y = 700;
+
+    pipe.handle(rel(proto::PointerAction::Move, 10, 10, true));
+    CHECK(inj.calls.back() == "move 910,710");
+}
+
+TEST_CASE("without the start flag the accumulator carries on") {
+    FakeInjector inj;
+    inj.cursor_x = 200;
+    inj.cursor_y = 200;
+
+    PointerPipeline pipe(inj);
+    pipe.set_enabled(true);
+
+    pipe.handle(rel(proto::PointerAction::Move, 5, 0, true));
+    // A stale cursor reading must not be used mid-gesture: injected moves are
+    // asynchronous, so the OS may not have caught up yet.
+    inj.cursor_x = 0;
+    inj.cursor_y = 0;
+    pipe.handle(rel(proto::PointerAction::Move, 5, 0));
+
+    CHECK(inj.calls.back() == "move 210,200");
+}
+
+TEST_CASE("relative movement stops at the screen edge and slides along it") {
+    FakeInjector inj;
+    inj.cursor_x = 1900;
+    inj.cursor_y = 500;
+
+    PointerPipeline pipe(inj);
+    pipe.set_screen_test(&two_monitor_layout);
+    pipe.set_enabled(true);
+
+    // Diagonally into the far right edge of the second monitor's row: x is
+    // refused, y should still take effect.
+    pipe.handle(rel(proto::PointerAction::Move, 5000, 100, true));
+
+    REQUIRE(inj.calls.size() == 1);
+    CHECK(inj.calls[0] == "move 1900,600");
+}
+
+TEST_CASE("the tracked position is clamped, not just the injected one") {
+    FakeInjector inj;
+    inj.cursor_x = 10;
+    inj.cursor_y = 500;
+
+    PointerPipeline pipe(inj);
+    pipe.set_screen_test(&two_monitor_layout);
+    pipe.set_enabled(true);
+
+    // Shove far past the left edge, then come back a little. If only the
+    // injected point were clamped, the accumulator would sit at -990 and this
+    // would have to unwind before the cursor moved at all.
+    pipe.handle(rel(proto::PointerAction::Move, -1000, 0, true));
+    pipe.handle(rel(proto::PointerAction::Move, 30, 0));
+
+    CHECK(inj.calls.back() == "move 40,500");
+}
+
+TEST_CASE("relative events are dropped while injection is off") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+
+    pipe.handle(rel(proto::PointerAction::Move, 10, 10, true));
+
+    CHECK(inj.calls.empty());
+    CHECK(pipe.stats().dropped_disabled == 1);
 }
 
 TEST_CASE("a failed injection is counted, not silently swallowed") {

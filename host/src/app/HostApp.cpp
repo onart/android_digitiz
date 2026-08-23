@@ -143,7 +143,9 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
         // Stroke boundaries are logged; MOVE is not, or a single drag would
         // bury everything else. The pipeline counters cover the volume.
         if (p.action != proto::PointerAction::Move) {
-            DZ_DEBUG("POINTER %s at (%d, %d)", proto::to_string(p.action), p.x, p.y);
+            const bool relative = (p.flags & proto::kPointerRelative) != 0;
+            DZ_DEBUG("POINTER %s %s (%d, %d)", proto::to_string(p.action),
+                     relative ? "by" : "at", p.x, p.y);
         }
 
         // Glass to here: the guest stamps t_us when Android delivered the

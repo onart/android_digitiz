@@ -57,7 +57,7 @@ private:
     Rect auto_launch_switch() const;
 
     void draw_mode_row(UiRenderer& ui, float alpha) const;
-    void draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color) const;
+    void draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color, float scale = 1.0f) const;
     void draw_auto_launch_row(UiRenderer& ui, float alpha) const;
 
     int surface_w_ = 0;
@@ -82,6 +82,7 @@ private:
         std::string title;
         std::string input_mode;
         std::string draw;
+        std::string slide;
         std::string pan;
         std::string auto_launch;
     };

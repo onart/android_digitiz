@@ -51,38 +51,45 @@ void main() {
     vec2 surface = vec2(gl_FragCoord.x, uViewport.y - gl_FragCoord.y);
     vec2 pc = surface / uScale + uPan;
 
-    // Nearest monitor edge. Negative inside a monitor, so the union of the
-    // screens is exactly where this is below zero — which is also exactly
-    // where touches are accepted.
-    float best = 1.0e9;
-    for (int i = 0; i < MAX_MONITORS; ++i) {
-        if (i >= uMonitorCount) {
-            break;
-        }
-        best = min(best, sdRect(pc, uMonitors[i]));
-    }
-    float sd = best * uScale;
-
     vec3 col = vec3(0.043, 0.047, 0.059);
+    float grid_gain = 1.0;
+    float border = 0.0;
 
-    // Area that actually maps to a screen reads brighter.
-    col = mix(col, vec3(0.078, 0.086, 0.105), 1.0 - smoothstep(-1.0, 1.0, sd));
+    // With no monitors the mapping is relative and nothing here corresponds to
+    // a place on the PC, so the screen outlines are left off rather than
+    // drawn somewhere meaningless.
+    if (uMonitorCount > 0) {
+        // Nearest monitor edge. Negative inside a monitor, so the union of the
+        // screens is exactly where this is below zero — which is also exactly
+        // where touches are accepted.
+        float best = 1.0e9;
+        for (int i = 0; i < MAX_MONITORS; ++i) {
+            if (i >= uMonitorCount) {
+                break;
+            }
+            best = min(best, sdRect(pc, uMonitors[i]));
+        }
+        float sd = best * uScale;
+
+        float live = 1.0 - smoothstep(-1.0, 1.0, sd);
+        col = mix(col, vec3(0.078, 0.086, 0.105), live);
+        // Outside the screens the grid is dimmed: a visible reminder that a
+        // touch there goes nowhere.
+        grid_gain = mix(0.35, 1.0, live);
+        border = 1.0 - smoothstep(1.0, 2.5, abs(sd));
+    } else {
+        col = vec3(0.078, 0.086, 0.105);
+    }
 
     float minor = max(lineAlpha(pc.x, uMinorStep, 0.5),
                       lineAlpha(pc.y, uMinorStep, 0.5));
     float major = max(lineAlpha(pc.x, uMinorStep * 5.0, 0.85),
                       lineAlpha(pc.y, uMinorStep * 5.0, 0.85));
 
-    // Outside the screens the grid is dimmed: a visible reminder that a touch
-    // there goes nowhere.
-    float live = 1.0 - smoothstep(-1.0, 1.0, sd);
-    float grid_gain = mix(0.35, 1.0, live);
-
     col = mix(col, uAccent * 0.55, minor * 0.45 * grid_gain);
     col = mix(col, uAccent, major * 0.7 * grid_gain);
 
     // Screen outlines last so they stay readable over the grid.
-    float border = 1.0 - smoothstep(1.0, 2.5, abs(sd));
     col = mix(col, uAccent * 1.35, border * 0.9);
 
     fragColor = vec4(col, 1.0);
@@ -124,7 +131,7 @@ void GridRenderer::release() {
 void GridRenderer::draw(const core::ViewTransform& view, int surface_w, int surface_h,
                         std::span<const core::Recti> monitors, bool injection_enabled,
                         bool linked) {
-    if (program_ == 0 || monitors.empty()) {
+    if (program_ == 0) {
         return;
     }
 
@@ -164,7 +171,9 @@ void GridRenderer::draw(const core::ViewTransform& view, int surface_w, int surf
         packed[i * 4 + 3] = static_cast<float>(monitors[static_cast<std::size_t>(i)].h);
     }
     glUniform1i(u_monitor_count_, count);
-    glUniform4fv(u_monitors_, count, packed);
+    if (count > 0) {
+        glUniform4fv(u_monitors_, count, packed);
+    }
 
     glUniform3fv(u_accent_, 1, accent);
 

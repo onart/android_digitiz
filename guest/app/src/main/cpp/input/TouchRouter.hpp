@@ -21,12 +21,18 @@ struct GameActivityMotionEvent;
 namespace digitiz::guest {
 
 enum class InputMode : std::uint8_t {
-    // One finger draws on the PC, two or more move the view.
+    // Pen: the surface maps onto the desktop one to one, and touching presses.
     Draw,
-    // Every finger moves the view and nothing is sent. Lets the view be placed
-    // precisely with one thumb, without a stray stroke landing on the PC.
+    // Trackpad: only the scale survives. A finger moves the cursor from
+    // wherever it already is, without pressing, and a short tap clicks. Lets
+    // the finger be lifted and replaced without the cursor jumping.
+    Slide,
+    // View only. Every finger moves the view and nothing is sent.
     Pan,
 };
+
+// Cycles Draw -> Slide -> Pan -> Draw.
+InputMode next_mode(InputMode mode) noexcept;
 
 class TouchRouter {
 public:
@@ -57,6 +63,9 @@ public:
     void set_min_interval_us(std::uint64_t us) noexcept { min_interval_us_ = us; }
     void set_min_distance_px(double px) noexcept { min_distance_px_ = px; }
 
+    // Scales the tap thresholds used in Slide mode.
+    void set_density(float density) noexcept { density_ = density > 0.0f ? density : 1.0f; }
+
     // Pointer events consumed by widgets before routing, so a tap on the side
     // menu does not also draw on the PC.
     void set_ui_hit_test(std::function<bool(core::Vec2)> hit) { ui_hit_ = std::move(hit); }
@@ -71,6 +80,13 @@ public:
 
 private:
     void emit(proto::PointerAction action, core::Vec2 surface, std::uint64_t t_us);
+    // Sends a delta rather than a position. The first call of a gesture is
+    // marked so the host re-reads the real cursor before accumulating.
+    void emit_relative(proto::PointerAction action, std::int32_t dx, std::int32_t dy,
+                       std::uint64_t t_us);
+    void slide_begin(core::Vec2 surface, std::uint64_t t_us);
+    void slide_move(core::Vec2 surface, std::uint64_t t_us);
+    void slide_end(core::Vec2 surface, std::uint64_t t_us);
     // `exclude` is the index of a pointer that is lifting and must be ignored.
     void begin_gesture(const GameActivityMotionEvent& event, std::int32_t exclude = -1);
     void update_gesture(const GameActivityMotionEvent& event, std::int32_t exclude = -1);
@@ -95,6 +111,21 @@ private:
 
     core::Vec2 gesture_centroid_{};
     double gesture_spread_ = 0.0;
+
+    // Slide mode. The remainder matters: at a scale of 0.5 a one pixel swipe
+    // is half a PC pixel, and truncating each event would make slow movement
+    // vanish entirely.
+    float density_ = 1.0f;
+    bool slide_active_ = false;
+    bool slide_started_sent_ = false;
+    core::Vec2 slide_last_{};
+    core::Vec2 slide_remainder_{};
+    core::Vec2 slide_origin_{};
+    std::uint64_t slide_origin_us_ = 0;
+    double slide_travel_ = 0.0;
+    std::int32_t slide_sent_x_ = 0;
+    std::int32_t slide_sent_y_ = 0;
+    int slide_sent_events_ = 0;
 };
 
 } // namespace digitiz::guest

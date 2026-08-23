@@ -30,6 +30,15 @@ enum class PointerAction : std::uint8_t {
 
 enum class MouseButton : std::uint8_t { Left = 0, Right = 1, Middle = 2 };
 
+// Pointer::flags
+//
+// Relative pointers carry a delta instead of a position: the guest does not
+// know where the cursor is, only the host does. The start bit marks the first
+// event of a gesture, telling the host to re-read the real cursor position
+// before accumulating — the user may have moved a physical mouse in between.
+inline constexpr std::uint8_t kPointerRelative = 1u << 0;
+inline constexpr std::uint8_t kPointerGestureStart = 1u << 1;
+
 const char* to_string(PointerAction action) noexcept;
 const char* to_string(MouseButton button) noexcept;
 const char* to_string(HostOs os) noexcept;
@@ -81,7 +90,9 @@ struct Pong {
 
 struct Pointer {
     std::uint64_t t_us = 0; // guest monotonic clock
-    std::int32_t x = 0;     // PC virtual-desktop pixels, may be negative
+    // Absolute: PC virtual-desktop pixels, may be negative.
+    // Relative (see kPointerRelative): a delta in PC pixels.
+    std::int32_t x = 0;
     std::int32_t y = 0;
     PointerAction action = PointerAction::Move;
     MouseButton button = MouseButton::Left;

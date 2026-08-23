@@ -4,7 +4,8 @@
 
     <string name="menu_input_mode">입력 모드</string>
     <string name="menu_mode_draw">그리기</string>
-    <string name="menu_mode_pan">이동</string>
+    <string name="menu_mode_slide">슬라이딩</string>
+    <string name="menu_mode_pan">화면 이동</string>
     <string name="menu_auto_launch">PC에서 자동 실행</string>
     <string name="status_waiting">연결 안 됨</string>
     <string name="status_ready">연결됨, 주입 꺼짐</string>

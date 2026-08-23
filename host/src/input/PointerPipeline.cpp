@@ -1,5 +1,7 @@
 #include "input/PointerPipeline.hpp"
 
+#include <cmath>
+
 #include <digitiz/core/log.hpp>
 
 namespace digitiz::host {
@@ -21,6 +23,12 @@ void PointerPipeline::handle(const proto::Pointer& p) {
 
     if (!enabled_) {
         ++stats_.dropped_disabled;
+        return;
+    }
+
+    if ((p.flags & proto::kPointerRelative) != 0) {
+        ++stats_.relative_events;
+        handle_relative(p);
         return;
     }
 
@@ -87,6 +95,8 @@ void PointerPipeline::handle(const proto::Pointer& p) {
 }
 
 void PointerPipeline::end_session() {
+    // The next session starts against whatever the cursor is doing then.
+    rel_seeded_ = false;
     release_stroke();
     injector_->release_all(); // belt and braces: catches anything we lost track of
 }
@@ -105,6 +115,93 @@ void PointerPipeline::inject_button(proto::MouseButton b, bool down, std::int32_
         ++stats_.injected;
     } else {
         ++stats_.inject_failures;
+    }
+}
+
+void PointerPipeline::handle_relative(const proto::Pointer& p) {
+    // The guest has no idea where the cursor is, and the user may have nudged
+    // a physical mouse since the last gesture, so start from the truth.
+    if ((p.flags & proto::kPointerGestureStart) != 0 || !rel_seeded_) {
+        std::int32_t cx = 0;
+        std::int32_t cy = 0;
+        if (injector_->cursor_pos(cx, cy)) {
+            rel_x_ = cx;
+            rel_y_ = cy;
+        }
+        rel_seeded_ = true;
+    }
+
+    advance_relative(p.x, p.y);
+
+    const auto x = static_cast<std::int32_t>(std::lround(rel_x_));
+    const auto y = static_cast<std::int32_t>(std::lround(rel_y_));
+    last_x_ = x;
+    last_y_ = y;
+
+    switch (p.action) {
+    case proto::PointerAction::Down:
+        if (down_) {
+            ++stats_.protocol_errors;
+            inject_button(held_, false, x, y);
+        }
+        inject_button(p.button, true, x, y);
+        down_ = true;
+        held_ = p.button;
+        break;
+
+    case proto::PointerAction::Move:
+    case proto::PointerAction::Hover:
+        inject_move(x, y);
+        break;
+
+    case proto::PointerAction::Up:
+        if (!down_) {
+            // Normal in slide mode: moving the cursor presses nothing.
+            break;
+        }
+        inject_button(held_, false, x, y);
+        down_ = false;
+        break;
+
+    case proto::PointerAction::Cancel:
+        if (down_) {
+            inject_button(held_, false, x, y);
+            down_ = false;
+        }
+        break;
+    }
+}
+
+void PointerPipeline::advance_relative(double dx, double dy) {
+    if (!on_screen_) {
+        rel_x_ += dx;
+        rel_y_ += dy;
+        return;
+    }
+
+    const auto lands = [this](double x, double y) {
+        return on_screen_(static_cast<std::int32_t>(std::lround(x)),
+                          static_cast<std::int32_t>(std::lround(y)));
+    };
+
+    const double want_x = rel_x_ + dx;
+    const double want_y = rel_y_ + dy;
+
+    if (lands(want_x, want_y)) {
+        rel_x_ = want_x;
+        rel_y_ = want_y;
+        return;
+    }
+    // Refused as a pair — try each axis so a diagonal drag into an edge keeps
+    // sliding along it. Clamping the tracked position rather than only the
+    // injected one matters: otherwise coming back requires first unwinding
+    // however far past the edge the accumulator ran.
+    if (lands(want_x, rel_y_)) {
+        rel_x_ = want_x;
+        return;
+    }
+    if (lands(rel_x_, want_y)) {
+        rel_y_ = want_y;
     }
 }
 

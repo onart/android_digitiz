@@ -92,6 +92,7 @@ void App::on_command(std::int32_t cmd) {
                 const int dpi = AConfiguration_getDensity(app_->config);
                 if (dpi > 0) {
                     density_ = static_cast<float>(dpi) / 160.0f;
+                    router_.set_density(density_);
                 }
             }
             menu_.layout(gl_.width(), gl_.height(), density_);
@@ -262,11 +263,20 @@ void App::render() {
         linked = link_up_;
     }
 
+    // Slide mode has no fixed mapping, so the screen outlines and the minimap
+    // would be pointing at nothing. Leaving them up would be worse than
+    // leaving them out.
+    const bool absolute = router_.mode() != InputMode::Slide;
+    const std::span<const core::Recti> shown_screens =
+        absolute ? std::span<const core::Recti>(monitors) : std::span<const core::Recti>();
+
     glViewport(0, 0, gl_.width(), gl_.height());
-    grid_.draw(view_, gl_.width(), gl_.height(), monitors, enabled, linked);
+    grid_.draw(view_, gl_.width(), gl_.height(), shown_screens, enabled, linked);
 
     ui_.begin(gl_.width(), gl_.height());
-    minimap_.draw(ui_, view_, gl_.width(), gl_.height(), desktop, monitors, density_);
+    if (absolute) {
+        minimap_.draw(ui_, view_, gl_.width(), gl_.height(), desktop, monitors, density_);
+    }
     menu_.draw(ui_);
     ui_.end();
 

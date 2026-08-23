@@ -57,7 +57,23 @@ std::int32_t pointer_index_of(std::int32_t action) {
            AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
 }
 
+// A touch counts as a tap only if it stayed put and was brief.
+constexpr double kTapSlopDp = 10.0;
+constexpr std::uint64_t kTapMaxUs = 300000;
+
 } // namespace
+
+InputMode next_mode(InputMode mode) noexcept {
+    switch (mode) {
+    case InputMode::Draw:
+        return InputMode::Slide;
+    case InputMode::Slide:
+        return InputMode::Pan;
+    case InputMode::Pan:
+        break;
+    }
+    return InputMode::Draw;
+}
 
 void TouchRouter::set_mode(InputMode mode) {
     if (mode_ == mode) {
@@ -67,7 +83,15 @@ void TouchRouter::set_mode(InputMode mode) {
     cancel_stroke();
     mode_ = mode;
     gesture_active_ = false;
-    DZ_INFO("input mode: %s", mode == InputMode::Draw ? "draw" : "pan");
+    slide_active_ = false;
+
+    const char* name = "draw";
+    if (mode == InputMode::Slide) {
+        name = "slide";
+    } else if (mode == InputMode::Pan) {
+        name = "pan";
+    }
+    DZ_INFO("input mode: %s", name);
 }
 
 void TouchRouter::handle(const GameActivityMotionEvent& event) {
@@ -94,6 +118,14 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
             break;
         }
 
+        if (mode_ == InputMode::Slide) {
+            // Tracked by id like a stroke: a later MOVE carries every pointer,
+            // and ours is not necessarily index 0.
+            stroke_pointer_id_ = event.pointers[0].id;
+            slide_begin(p, t_us);
+            break;
+        }
+
         // Nothing on the PC is under this point, so there is nothing to press.
         // Silently ignoring it beats clamping to the nearest screen edge,
         // which would jump the cursor somewhere the user never touched.
@@ -116,6 +148,11 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
             stroke_active_ = false;
             stroke_pointer_id_ = -1;
         }
+        if (slide_active_) {
+            // Abandon the slide; no button was pressed, so nothing to release.
+            slide_active_ = false;
+            stroke_pointer_id_ = -1;
+        }
         begin_gesture(event);
         break;
     }
@@ -123,6 +160,15 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     case AMOTION_EVENT_ACTION_MOVE: {
         if (gesture_active_) {
             update_gesture(event);
+            break;
+        }
+        if (slide_active_) {
+            for (std::uint32_t i = 0; i < event.pointerCount; ++i) {
+                if (event.pointers[i].id == stroke_pointer_id_) {
+                    slide_move(pointer_pos(event, i), t_us);
+                    break;
+                }
+            }
             break;
         }
         if (!stroke_active_) {
@@ -182,6 +228,11 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     }
 
     case AMOTION_EVENT_ACTION_UP: {
+        if (slide_active_) {
+            const std::int32_t index = pointer_index_of(event.action);
+            slide_end(pointer_pos(event, static_cast<std::uint32_t>(index >= 0 ? index : 0)),
+                      t_us);
+        }
         if (stroke_active_) {
             const std::int32_t index = pointer_index_of(event.action);
             const core::Vec2 p =
@@ -193,6 +244,7 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
         }
         stroke_active_ = false;
         gesture_active_ = false;
+        slide_active_ = false;
         stroke_pointer_id_ = -1;
         break;
     }
@@ -200,6 +252,7 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     case AMOTION_EVENT_ACTION_CANCEL: {
         cancel_stroke();
         gesture_active_ = false;
+        slide_active_ = false;
         break;
     }
 
@@ -240,6 +293,86 @@ void TouchRouter::update_gesture(const GameActivityMotionEvent& event, std::int3
 
     gesture_centroid_ = centroid;
     gesture_spread_ = spread;
+}
+
+void TouchRouter::slide_begin(core::Vec2 surface, std::uint64_t t_us) {
+    slide_active_ = true;
+    slide_started_sent_ = false;
+    slide_last_ = surface;
+    slide_remainder_ = core::Vec2{};
+    slide_origin_ = surface;
+    slide_origin_us_ = t_us;
+    slide_travel_ = 0.0;
+    slide_sent_x_ = 0;
+    slide_sent_y_ = 0;
+    slide_sent_events_ = 0;
+}
+
+void TouchRouter::slide_move(core::Vec2 surface, std::uint64_t t_us) {
+    const core::Vec2 step = surface - slide_last_;
+    slide_last_ = surface;
+    slide_travel_ += std::sqrt(step.x * step.x + step.y * step.y);
+
+    // Surface pixels to PC pixels. The scale is what survives from the
+    // absolute view: zoomed in means fine control, zoomed out means coarse.
+    const double scale = view_->scale() > 0.0 ? view_->scale() : 1.0;
+    const core::Vec2 wanted = step / scale + slide_remainder_;
+
+    const double dx = std::trunc(wanted.x);
+    const double dy = std::trunc(wanted.y);
+    // Whatever did not reach a whole pixel is carried, not discarded.
+    slide_remainder_ = core::Vec2{wanted.x - dx, wanted.y - dy};
+
+    if (dx == 0.0 && dy == 0.0) {
+        return;
+    }
+    slide_sent_x_ += static_cast<std::int32_t>(dx);
+    slide_sent_y_ += static_cast<std::int32_t>(dy);
+    ++slide_sent_events_;
+    emit_relative(proto::PointerAction::Move, static_cast<std::int32_t>(dx),
+                  static_cast<std::int32_t>(dy), t_us);
+}
+
+void TouchRouter::slide_end(core::Vec2 surface, std::uint64_t t_us) {
+    slide_move(surface, t_us);
+
+    const bool brief = t_us - slide_origin_us_ <= kTapMaxUs;
+    const bool still = slide_travel_ <= kTapSlopDp * static_cast<double>(density_);
+    slide_active_ = false;
+
+    DZ_DEBUG("slide: %d event(s), total (%d, %d) px, %s", slide_sent_events_, slide_sent_x_,
+             slide_sent_y_, (brief && still) ? "tap -> click" : "move only");
+
+    if (!brief || !still) {
+        return;
+    }
+
+    // A tap clicks wherever the cursor already is: press and release with no
+    // movement of their own.
+    emit_relative(proto::PointerAction::Down, 0, 0, t_us);
+    emit_relative(proto::PointerAction::Up, 0, 0, t_us);
+}
+
+void TouchRouter::emit_relative(proto::PointerAction action, std::int32_t dx, std::int32_t dy,
+                                std::uint64_t t_us) {
+    if (!sink_) {
+        return;
+    }
+
+    proto::Pointer msg;
+    msg.t_us = t_us;
+    msg.x = dx;
+    msg.y = dy;
+    msg.action = action;
+    msg.button = proto::MouseButton::Left;
+    msg.pointer_id = 0;
+    msg.flags = proto::kPointerRelative;
+    if (!slide_started_sent_) {
+        msg.flags |= proto::kPointerGestureStart;
+        slide_started_sent_ = true;
+    }
+    msg.pressure = 1.0f;
+    sink_(msg);
 }
 
 bool TouchRouter::lands_on_screen(core::Vec2 surface) const {
