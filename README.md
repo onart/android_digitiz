@@ -174,6 +174,12 @@ Ninja + MSVC 조합은 **컴파일러 환경이 셋업된 셸**을 요구한다.
 "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
 ```
 
+**Git Bash에서 `cmd //c "... && cmake --build ..."` 로 우회하지 말 것.** 경로가
+깨져서 `지정된 경로를 찾을 수 없습니다` 하나만 남기고 조용히 실패하는데, 빌드가
+안 돌았다는 사실이 드러나지 않아 **낡은 바이너리로 존재하지도 않는 버그를 쫓게
+된다.** 실제로 그러다 하트비트 버그를 한참 헤맸다. PowerShell이나 Developer
+Command Prompt에서 돌리고, 의심스러우면 exe의 타임스탬프를 확인한다.
+
 `Visual Studio` 제너레이터를 쓰지 않는 이유: 이 개발 환경에는 VS 18 Community가
 설치돼 있는데 CMake 3.30에는 VS 18 제너레이터가 없다. CMake를 올리면 쓸 수 있지만
 Ninja가 어차피 더 빠르고 크로스플랫폼이라 그대로 간다.
