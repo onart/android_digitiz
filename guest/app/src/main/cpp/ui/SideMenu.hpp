@@ -48,6 +48,11 @@ public:
     bool auto_launch() const noexcept { return auto_launch_; }
     bool take_auto_launch_change() noexcept;
 
+    // True once, when the user asked for the display to be turned round. The
+    // menu holds no state for it: the orientation belongs to the activity, and
+    // asking it back would only be a second copy that can disagree.
+    bool take_rotate_request() noexcept;
+
     // Pointer decimation while drawing, in milliseconds and dp.
     void set_throttle(int interval_ms, float distance_dp) noexcept;
     int min_interval_ms() const noexcept { return min_interval_ms_; }
@@ -63,6 +68,7 @@ private:
     Rect mode_value_pill() const;
     Rect auto_launch_row() const;
     Rect auto_launch_switch() const;
+    Rect rotate_button() const;
 
     // 0 = time, 1 = distance.
     Rect throttle_row(int index) const;
@@ -74,6 +80,7 @@ private:
     void draw_mode_row(UiRenderer& ui, float alpha) const;
     void draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color, float scale = 1.0f) const;
     void draw_auto_launch_row(UiRenderer& ui, float alpha) const;
+    void draw_rotate_button(UiRenderer& ui, float alpha) const;
 
     int surface_w_ = 0;
     int surface_h_ = 0;
@@ -93,6 +100,8 @@ private:
     bool auto_launch_ = true;
     bool auto_launch_changed_ = false;
 
+    bool rotate_requested_ = false;
+
     int min_interval_ms_ = 0;
     float min_distance_dp_ = 0.0f;
     bool throttle_changed_ = false;
@@ -106,6 +115,7 @@ private:
         std::string slide;
         std::string pan;
         std::string auto_launch;
+        std::string rotate;
         std::string throttle_time;
         std::string throttle_distance;
         std::string throttle_off;

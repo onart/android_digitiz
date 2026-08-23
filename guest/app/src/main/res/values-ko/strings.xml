@@ -7,6 +7,7 @@
     <string name="menu_mode_slide">슬라이딩</string>
     <string name="menu_mode_pan">화면 이동</string>
     <string name="menu_auto_launch">PC에서 자동 실행</string>
+    <string name="menu_rotate">180° 돌리기</string>
     <string name="menu_throttle_time">최소 시간 간격</string>
     <string name="menu_throttle_distance">최소 거리 간격</string>
     <string name="menu_throttle_off">끔</string>

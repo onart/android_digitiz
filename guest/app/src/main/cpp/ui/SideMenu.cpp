@@ -58,6 +58,12 @@ bool SideMenu::take_auto_launch_change() noexcept {
     return changed;
 }
 
+bool SideMenu::take_rotate_request() noexcept {
+    const bool asked = rotate_requested_;
+    rotate_requested_ = false;
+    return asked;
+}
+
 void SideMenu::set_throttle(int interval_ms, float distance_dp) noexcept {
     min_interval_ms_ = std::clamp(interval_ms, 0, kMaxIntervalMs);
     min_distance_dp_ = std::clamp(distance_dp, 0.0f, kMaxDistanceDp);
@@ -134,6 +140,18 @@ Rect SideMenu::panel_rect() const {
     };
 }
 
+// Beside the title rather than in a row of its own. Four rows already reach
+// within a row's height of the bottom on a 720px screen, and this is a
+// one-shot action with no state to display, which is what a header control is
+// for.
+Rect SideMenu::rotate_button() const {
+    const Rect panel = panel_rect();
+    const float pad = 16.0f * density_;
+    const float w = 104.0f * density_;
+    const float h = 34.0f * density_;
+    return Rect{panel.x + panel.w - pad - w, 12.0f * density_, w, h};
+}
+
 Rect SideMenu::mode_row() const {
     const Rect panel = panel_rect();
     const float pad = 16.0f * density_;
@@ -180,7 +198,9 @@ bool SideMenu::hit_test(core::Vec2 p) {
         // The whole row is the target, not just the control on its right: a
         // 36dp pill is a small thing to hit with a thumb.
         if (progress_ > 0.9f) {
-            if (mode_row().contains(p)) {
+            if (rotate_button().contains(p)) {
+                rotate_requested_ = true;
+            } else if (mode_row().contains(p)) {
                 // Few enough modes that cycling beats a picker.
                 mode_ = next_mode(mode_);
                 mode_changed_ = true;
@@ -325,6 +345,14 @@ void SideMenu::draw_auto_launch_row(UiRenderer& ui, float alpha) const {
                     Color{0.96f, 0.97f, 1.0f, alpha});
 }
 
+// No state shown, because there is none to show: the drawer turns with
+// everything else, so both orientations look identical from inside it. Only
+// the phone on the desk can say which way round it is.
+void SideMenu::draw_rotate_button(UiRenderer& ui, float alpha) const {
+    const Rect button = rotate_button();
+    ui.rounded_rect(button, button.h * 0.5f, Color{0.22f, 0.24f, 0.29f, 0.95f * alpha});
+}
+
 void SideMenu::drag(core::Vec2 p) {
     if (dragging_slider_ >= 0) {
         // Tracked by x only: the finger wandering off the track vertically
@@ -350,6 +378,7 @@ void SideMenu::load_labels(TextRenderer& text) {
     labels_.slide = text.localized("menu_mode_slide");
     labels_.pan = text.localized("menu_mode_pan");
     labels_.auto_launch = text.localized("menu_auto_launch");
+    labels_.rotate = text.localized("menu_rotate");
     labels_.throttle_time = text.localized("menu_throttle_time");
     labels_.throttle_distance = text.localized("menu_throttle_distance");
     labels_.throttle_off = text.localized("menu_throttle_off");
@@ -367,6 +396,10 @@ void SideMenu::draw_labels(TextRenderer& text) const {
 
     text.draw(labels_.title, panel.x + pad, 20.0f * density_, 17.0f * density_,
               Color{0.92f, 0.94f, 0.98f, a}, TextAlign::Left, true);
+
+    const Rect rotate = rotate_button();
+    text.draw(labels_.rotate, rotate.x + rotate.w * 0.5f, rotate.y + rotate.h * 0.5f - 9.0f * density_,
+              13.0f * density_, Color{0.86f, 0.89f, 0.95f, a}, TextAlign::Center);
 
     // Two rows of the same shape: setting name left, current value right.
     const float text_size = 14.0f * density_;
@@ -422,6 +455,7 @@ void SideMenu::draw(UiRenderer& ui) const {
         ui.rounded_rect(panel, 18.0f * density_,
                         Color{0.11f, 0.12f, 0.145f, 0.96f * progress_ + 0.04f});
 
+        draw_rotate_button(ui, progress_);
         draw_mode_row(ui, progress_);
         draw_auto_launch_row(ui, progress_);
         draw_throttle_row(ui, 0, progress_);

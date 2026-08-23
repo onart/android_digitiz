@@ -23,6 +23,7 @@ add_library(digitiz_guest SHARED
     core/Settings.cpp
     input/TouchRouter.cpp
     net/TcpTransport.cpp
+    platform/ActivityBridge.cpp
     render/GlContext.cpp
     render/GridRenderer.cpp
     render/Shader.cpp

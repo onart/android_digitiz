@@ -7,6 +7,8 @@
 
 #include <digitiz/core/log.hpp>
 
+#include "platform/ActivityBridge.hpp"
+
 namespace digitiz::guest {
 
 namespace {
@@ -171,6 +173,11 @@ void App::frame() {
     // The menu owns the switch; the router owns the behaviour.
     if (menu_.take_mode_change()) {
         router_.set_mode(menu_.mode());
+    }
+    if (menu_.take_rotate_request()) {
+        // The activity owns this, not us: rotating what we draw would leave
+        // the system bars and the touch mapping on the old side.
+        flip_orientation(app_->activity);
     }
     if (menu_.take_auto_launch_change()) {
         // Written straight to disk: the host reads this file while the app is

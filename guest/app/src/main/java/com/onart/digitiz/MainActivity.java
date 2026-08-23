@@ -1,5 +1,7 @@
 package com.onart.digitiz;
 
+import android.content.SharedPreferences;
+import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -8,6 +10,7 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.KeyEvent;
+import android.view.Surface;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Toast;
@@ -24,6 +27,10 @@ public class MainActivity extends GameActivity {
     /** How long the second back press has to arrive to count as a confirmation. */
     private static final long EXIT_CONFIRM_WINDOW_MS = 2000;
 
+    private static final String PREFS = "digitiz";
+    /** Absent until the user first flips; until then the manifest's sensorLandscape rules. */
+    private static final String KEY_REVERSED = "orientation_reversed";
+
     private long lastBackPressAt = 0;
     private Toast exitToast;
 
@@ -33,11 +40,65 @@ public class MainActivity extends GameActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Before super.onCreate(), which is where GameActivity builds the
+        // window: requesting the orientation first means it comes up the right
+        // way round instead of rotating once the user can already see it.
+        applyStoredOrientation();
+
         super.onCreate(savedInstanceState);
 
         // The session dies with the screen, so do not let it sleep while the
         // phone is being used as a tablet.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    // --- orientation -------------------------------------------------------
+    //
+    // The manifest asks for sensorLandscape, which is right while the phone is
+    // being held: turn it over and the picture follows. It is useless once the
+    // phone is lying flat on a desk, though — the accelerometer cannot tell
+    // which way round a horizontal phone is, so whichever way it came up is
+    // the way it stays. That is exactly the position this app is used in, and
+    // the USB cable decides which edge is reachable, so there has to be a way
+    // to say "the other way round" by hand.
+    //
+    // Doing it through the OS rather than by turning our own rendering keeps
+    // the system bars, the cutout and the touch mapping on the correct side;
+    // rotating only what we draw would leave all three where they were.
+
+    private void applyStoredOrientation() {
+        final SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (!prefs.contains(KEY_REVERSED)) {
+            return;
+        }
+        setRequestedOrientation(prefs.getBoolean(KEY_REVERSED, false)
+                ? ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+                : ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+    }
+
+    /**
+     * Turns the display the other way round and remembers it. Note this also
+     * ends auto-rotation: a half turn is only meaningful as a fixed choice,
+     * and the sensor would be free to undo it the moment the phone is picked
+     * up. Called from native, off the render thread.
+     */
+    @SuppressWarnings("unused")
+    public void flipOrientation() {
+        runOnUiThread(() -> {
+            // Derived from the rotation the display actually has rather than
+            // from the stored flag, so the first press flips no matter which
+            // way the sensor happened to leave things.
+            final int rotation = getWindowManager().getDefaultDisplay().getRotation();
+            final boolean reversed = rotation != Surface.ROTATION_270;
+
+            getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_REVERSED, reversed)
+                    .apply();
+            setRequestedOrientation(reversed
+                    ? ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+                    : ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        });
     }
 
     /**
