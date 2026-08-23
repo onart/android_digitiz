@@ -58,11 +58,20 @@ void PointerPipeline::handle(const proto::Pointer& p) {
         inject_button(p.button, true, p.x, p.y);
         down_ = true;
         held_ = p.button;
+        // The press already put the cursor here, so this seeds the curve
+        // without emitting anything.
+        smoother_.begin(p.x, p.y);
         break;
 
     case proto::PointerAction::Move:
     case proto::PointerAction::Hover:
-        inject_move(p.x, p.y);
+        // Bypassed rather than run in passthrough when off, so the plain path
+        // is provably the one that existed before smoothing was added.
+        if (smoother_.enabled()) {
+            smoother_.add(p.x, p.y, [this](double sx, double sy) { emit_smoothed(sx, sy); });
+        } else {
+            inject_move(p.x, p.y);
+        }
         break;
 
     case proto::PointerAction::Up:
@@ -79,6 +88,15 @@ void PointerPipeline::handle(const proto::Pointer& p) {
                     proto::to_string(p.button), proto::to_string(held_),
                     proto::to_string(held_));
         }
+        // Drain the curve before releasing, or the stroke would stop one
+        // sample short of where the finger actually lifted. Skipped entirely
+        // when smoothing is off: the release already carries the position, and
+        // an extra move would be a behaviour change for the plain path.
+        if (smoother_.enabled()) {
+            const auto emit = [this](double sx, double sy) { emit_smoothed(sx, sy); };
+            smoother_.add(p.x, p.y, emit);
+            smoother_.finish(emit);
+        }
         inject_button(held_, false, p.x, p.y);
         down_ = false;
         break;
@@ -86,6 +104,7 @@ void PointerPipeline::handle(const proto::Pointer& p) {
     case proto::PointerAction::Cancel:
         // The guest saw a second finger land and switched to view manipulation.
         // Abandon the stroke where it stands.
+        smoother_.reset();
         if (down_) {
             inject_button(held_, false, p.x, p.y);
             down_ = false;
@@ -99,6 +118,12 @@ void PointerPipeline::end_session() {
     rel_seeded_ = false;
     release_stroke();
     injector_->release_all(); // belt and braces: catches anything we lost track of
+}
+
+void PointerPipeline::emit_smoothed(double x, double y) {
+    ++stats_.smoothed_points;
+    inject_move(static_cast<std::int32_t>(std::lround(x)),
+                static_cast<std::int32_t>(std::lround(y)));
 }
 
 void PointerPipeline::inject_move(std::int32_t x, std::int32_t y) {
@@ -212,6 +237,9 @@ bool PointerPipeline::on_screen(std::int32_t x, std::int32_t y) const {
 }
 
 void PointerPipeline::release_stroke() {
+    // Whatever the curve still holds belongs to a stroke that is being torn
+    // down, so it is dropped rather than drawn.
+    smoother_.reset();
     if (!down_) {
         return;
     }

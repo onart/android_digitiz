@@ -332,6 +332,55 @@ TEST_CASE("without a screen test nothing is dropped") {
     CHECK(pipe.stats().dropped_off_screen == 0);
 }
 
+TEST_CASE("smoothing fills a stroke in and still ends on the last sample") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+    pipe.smoother().set_enabled(true);
+    pipe.smoother().set_step_px(2.0);
+    pipe.set_enabled(true);
+
+    pipe.handle(ev(proto::PointerAction::Down, 0, 0));
+    pipe.handle(ev(proto::PointerAction::Move, 40, 10));
+    pipe.handle(ev(proto::PointerAction::Move, 80, 0));
+    pipe.handle(ev(proto::PointerAction::Up, 120, 10));
+
+    // Four samples in, many more moves out.
+    CHECK(pipe.stats().smoothed_points > 20);
+    CHECK(inj.calls.front() == "down LEFT 0,0");
+    CHECK(inj.calls.back() == "up LEFT 120,10");
+    CHECK_FALSE(inj.any_button_down());
+}
+
+TEST_CASE("smoothing off leaves the stroke exactly as before") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+    pipe.set_enabled(true);
+
+    pipe.handle(ev(proto::PointerAction::Down, 0, 0));
+    pipe.handle(ev(proto::PointerAction::Move, 40, 10));
+    pipe.handle(ev(proto::PointerAction::Up, 80, 0));
+
+    REQUIRE(inj.calls.size() == 3);
+    CHECK(inj.calls[1] == "move 40,10");
+    CHECK(pipe.stats().smoothed_points == 0);
+}
+
+TEST_CASE("a cancelled stroke does not get drained onto the screen") {
+    FakeInjector inj;
+    PointerPipeline pipe(inj);
+    pipe.smoother().set_enabled(true);
+    pipe.set_enabled(true);
+
+    pipe.handle(ev(proto::PointerAction::Down, 0, 0));
+    pipe.handle(ev(proto::PointerAction::Move, 40, 0));
+    const std::uint64_t before = pipe.stats().smoothed_points;
+
+    pipe.handle(ev(proto::PointerAction::Cancel, 60, 0));
+
+    CHECK(pipe.stats().smoothed_points == before);
+    CHECK_FALSE(inj.any_button_down());
+}
+
 // --- slide (relative) mode -------------------------------------------------
 
 namespace {

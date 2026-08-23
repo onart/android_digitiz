@@ -113,6 +113,8 @@ void HostApp::on_transport_connect() {
         clock_.reset();
         link_latency_.reset();
         inject_latency_.reset();
+        sample_interval_.reset();
+        last_sample_us_ = 0;
     }
     session_active_ = true;
     last_ping_ = std::chrono::steady_clock::now();
@@ -142,8 +144,19 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
 
         if (p.action == proto::PointerAction::Down) {
             stroke_samples_ = 0;
+            last_sample_us_ = 0;
+            std::lock_guard lock(pipeline_mutex_);
+            smoothed_before_stroke_ = pipeline_->stats().smoothed_points;
         }
         ++stroke_samples_;
+
+        {
+            std::lock_guard lock(session_mutex_);
+            if (last_sample_us_ != 0 && arrived_us > last_sample_us_) {
+                sample_interval_.add(static_cast<double>(arrived_us - last_sample_us_) / 1000.0);
+            }
+            last_sample_us_ = arrived_us;
+        }
 
         // Stroke boundaries are logged; MOVE is not, or a single drag would
         // bury everything else. The pipeline counters cover the volume.
@@ -181,11 +194,23 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
         // One summary per stroke: fine-grained enough to correlate with how a
         // particular drag felt, quiet enough to leave on.
         if (p.action == proto::PointerAction::Up || p.action == proto::PointerAction::Cancel) {
+            std::uint64_t smoothed = 0;
+            {
+                std::lock_guard lock(pipeline_mutex_);
+                smoothed = pipeline_->stats().smoothed_points - smoothed_before_stroke_;
+            }
+
+            char curve[48] = "";
+            if (smoothed > 0) {
+                std::snprintf(curve, sizeof(curve), " -> %llu curve point(s)",
+                              static_cast<unsigned long long>(smoothed));
+            }
+
             std::lock_guard lock(session_mutex_);
             if (!link_latency_.empty()) {
-                DZ_DEBUG("stroke ended: %d pointer(s); event-to-host %.1f ms avg, %.1f max; "
+                DZ_DEBUG("stroke ended: %d pointer(s)%s; event-to-host %.1f ms avg, %.1f max; "
                          "injection %.0f us avg",
-                         stroke_samples_, link_latency_.average(), link_latency_.max(),
+                         stroke_samples_, curve, link_latency_.average(), link_latency_.max(),
                          inject_latency_.average() * 1000.0);
             }
         }
@@ -577,9 +602,70 @@ void HostApp::draw_status_panel() {
         }
     }
 
+    draw_smoothing_panel();
+
     draw_selftest_panel();
 
     ImGui::End();
+}
+
+void HostApp::draw_smoothing_panel() {
+    if (!ImGui::CollapsingHeader("Curve smoothing", ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+
+    bool enabled = false;
+    float step = 3.0f;
+    int alpha_choice = 1;
+    std::uint64_t points = 0;
+    {
+        std::lock_guard lock(pipeline_mutex_);
+        enabled = pipeline_->smoother().enabled();
+        step = static_cast<float>(pipeline_->smoother().step_px());
+        const double a = pipeline_->smoother().alpha();
+        alpha_choice = a <= 0.25 ? 0 : (a >= 0.75 ? 2 : 1);
+        points = pipeline_->stats().smoothed_points;
+    }
+
+    const bool was_enabled = enabled;
+    const float was_step = step;
+    const int was_alpha = alpha_choice;
+
+    ImGui::Checkbox("Fit a Catmull-Rom curve between samples", &enabled);
+    ImGui::SetItemTooltip(
+        "Fills the gaps between incoming samples so a stroke draws as a curve "
+        "rather than a polyline.\n"
+        "Costs one sample of latency and there is no way around it: the curve "
+        "through a point is not defined until the next point arrives. Absolute "
+        "strokes only — slide mode stays direct.");
+
+    ImGui::BeginDisabled(!enabled);
+    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SliderFloat("Point spacing", &step, 0.5f, 12.0f, "%.1f px");
+    ImGui::SetNextItemWidth(180.0f);
+    ImGui::Combo("Parameterization", &alpha_choice, "Uniform\0Centripetal\0Chordal\0");
+    ImGui::SetItemTooltip("Centripetal is the safe default. Uniform produces cusps and loops "
+                          "when samples are unevenly spaced, which decimation guarantees.");
+    ImGui::EndDisabled();
+
+    if (enabled) {
+        // The added lag is exactly one input interval, so report the interval
+        // rather than a number pulled from the air.
+        std::lock_guard lock(session_mutex_);
+        if (sample_interval_.empty()) {
+            ImGui::TextDisabled("Added lag: one sample — draw to measure the interval");
+        } else {
+            ImGui::Text("Added lag: ~%.0f ms (one sample)", sample_interval_.average());
+        }
+    }
+    ImGui::TextDisabled("%llu point(s) generated", static_cast<unsigned long long>(points));
+
+    if (enabled != was_enabled || step != was_step || alpha_choice != was_alpha) {
+        std::lock_guard lock(pipeline_mutex_);
+        pipeline_->smoother().set_enabled(enabled);
+        pipeline_->smoother().set_step_px(step);
+        pipeline_->smoother().set_alpha(alpha_choice == 0 ? 0.0 : (alpha_choice == 2 ? 1.0 : 0.5));
+    }
 }
 
 void HostApp::draw_connection_panel() {

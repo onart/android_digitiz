@@ -52,6 +52,7 @@ add_library(digitiz_host_lib STATIC
     src/app/HostApp.cpp
     src/display/Win32DisplayInfo.cpp
     src/input/PointerPipeline.cpp
+    src/input/SplineSmoother.cpp
     src/input/Win32InputInjector.cpp
     src/platform/Win32Process.cpp
     src/transport/AdbClient.cpp

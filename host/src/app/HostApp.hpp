@@ -59,6 +59,7 @@ private:
     void refresh_layout(bool force);
     void draw_status_panel();
     void draw_connection_panel();
+    void draw_smoothing_panel();
     void draw_selftest_panel();
     void draw_log_panel();
 
@@ -101,12 +102,17 @@ private:
     // Pointer messages in the current stroke. The decimation settings on the
     // guest are tuned by watching this.
     int stroke_samples_ = 0;
+    std::uint64_t smoothed_before_stroke_ = 0;
 
     ClockSync clock_;
     // Finger event on the phone -> message decoded here.
     LatencyStats link_latency_;
     // Time spent inside the injector, measured on this side only.
     LatencyStats inject_latency_;
+    // Gap between arriving pointer samples. Smoothing adds exactly one of
+    // these, so this is what the UI reports as its cost.
+    LatencyStats sample_interval_;
+    std::uint64_t last_sample_us_ = 0;
 
     std::atomic<bool> session_active_{false};
     std::chrono::steady_clock::time_point last_ping_{};

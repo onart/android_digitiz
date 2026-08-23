@@ -6,7 +6,9 @@ add_executable(digitiz_host_tests
     test_absolute_coord.cpp
     test_latency_stats.cpp
     test_pointer_pipeline.cpp
+    test_spline_smoother.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/PointerPipeline.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/SplineSmoother.cpp
 )
 
 target_include_directories(digitiz_host_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)

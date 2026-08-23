@@ -13,6 +13,7 @@
 #include <digitiz/proto/messages.hpp>
 
 #include "input/InputInjector.hpp"
+#include "input/SplineSmoother.hpp"
 
 namespace digitiz::host {
 
@@ -26,7 +27,14 @@ public:
         std::uint64_t inject_failures = 0;
         std::uint64_t dropped_off_screen = 0;
         std::uint64_t relative_events = 0;
+        // Points the smoother produced from those samples.
+        std::uint64_t smoothed_points = 0;
     };
+
+    // Curve fitting between samples. Absolute strokes only — in slide mode it
+    // would put lag on plain pointing, which is the opposite of useful.
+    SplineSmoother& smoother() noexcept { return smoother_; }
+    const SplineSmoother& smoother() const noexcept { return smoother_; }
 
     // Points that land on no display are ignored rather than clamped. The
     // guest filters these too, but it is not trusted to: a stale monitor list
@@ -65,8 +73,11 @@ private:
     // instead of stopping dead.
     void advance_relative(double dx, double dy);
 
+    void emit_smoothed(double x, double y);
+
     IInputInjector* injector_;
     ScreenTest on_screen_;
+    SplineSmoother smoother_;
 
     // Relative mode tracks the cursor itself. Kept as doubles so a slow drag
     // at a small scale still accumulates instead of rounding away every event.
