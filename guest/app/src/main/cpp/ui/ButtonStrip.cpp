@@ -14,15 +14,24 @@ const Color kSlotPressed{0.26f, 0.44f, 0.36f, 0.98f};
 const Color kGlyph{0.78f, 0.82f, 0.89f, 1.0f};
 
 // Long enough not to fire while someone is deciding, short enough not to feel
-// stuck. A region button cannot be held down on the PC for longer than this —
-// the menu opens instead — which is the price of putting edit and delete
-// behind a hold rather than spending screen on a control per button.
+// stuck.
 constexpr double kLongPressSeconds = 0.55;
 constexpr double kMoveSlopDp = 10.0;
+// How quickly the list settles onto a slot boundary after a drag or an arrow.
+constexpr double kSnapSeconds = 0.14;
 
 float distance(core::Vec2 a, core::Vec2 b) {
     const core::Vec2 d = a - b;
     return static_cast<float>(std::sqrt(d.x * d.x + d.y * d.y));
+}
+
+// Positive remainder, which fmod is not for negative input.
+double wrap(double value, double span) {
+    if (span <= 0.0) {
+        return 0.0;
+    }
+    const double r = std::fmod(value, span);
+    return r < 0.0 ? r + span : r;
 }
 
 } // namespace
@@ -65,22 +74,30 @@ void ButtonStrip::layout(int surface_w, int surface_h, float density) {
         if (m.visible >= n) {
             m.arrows = false;
         }
+        m.run = static_cast<float>(m.visible) * m.slot;
     }
 
-    m.start = m.margin;
-    m.cross = horizontal() ? static_cast<float>(surface_h) - m.margin - m.thickness : m.margin;
     m_ = m;
+    m_.start = m.margin;
+    m_.cross = horizontal() ? static_cast<float>(surface_h) - m.margin - m.thickness : m.margin;
 
-    // A shorter list, or a rotation, can leave the window past the end.
-    if (count() == 0) {
-        first_ = 0;
-    } else {
-        first_ = ((first_ % count()) + count()) % count();
+    if (!m_.arrows) {
+        // Everything is on screen, so there is nowhere to be scrolled to.
+        scroll_ = 0.0;
+        scroll_target_ = 0.0;
     }
 }
 
 void ButtonStrip::advance(double dt_seconds) {
-    if (press_ != Press::Slot || press_moved_ || region_dragging_) {
+    if (!scrolling_ && scroll_ != scroll_target_) {
+        const double t = std::clamp(dt_seconds / kSnapSeconds, 0.0, 1.0);
+        scroll_ += (scroll_target_ - scroll_) * t;
+        if (std::abs(scroll_target_ - scroll_) < 0.5) {
+            scroll_ = scroll_target_;
+        }
+    }
+
+    if (press_ != Press::Slot || press_moved_) {
         return;
     }
     press_seconds_ += dt_seconds;
@@ -110,21 +127,26 @@ Rect ButtonStrip::prev_rect() const {
     return cell(m_.toggle, m_.arrow);
 }
 
-Rect ButtonStrip::slot_rect(int slot) const {
-    const float offset =
-        m_.toggle + (m_.arrows ? m_.arrow : 0.0f) + static_cast<float>(slot) * m_.slot;
-    return cell(offset, m_.slot);
+float ButtonStrip::run_start() const {
+    return m_.toggle + (m_.arrows ? m_.arrow : 0.0f);
+}
+
+Rect ButtonStrip::run_rect() const {
+    return cell(run_start(), m_.run);
+}
+
+Rect ButtonStrip::slot_rect(int k) const {
+    const float phase =
+        scrollable() ? static_cast<float>(std::fmod(wrapped_scroll(), m_.slot)) : 0.0f;
+    return cell(run_start() + static_cast<float>(k) * m_.slot - phase, m_.slot);
 }
 
 Rect ButtonStrip::next_rect() const {
-    const float offset = m_.toggle + m_.arrow + static_cast<float>(m_.visible) * m_.slot;
-    return cell(offset, m_.arrow);
+    return cell(run_start() + m_.run, m_.arrow);
 }
 
 Rect ButtonStrip::add_rect() const {
-    const float offset = m_.toggle + (m_.arrows ? m_.arrow * 2.0f : 0.0f) +
-                         static_cast<float>(m_.visible) * m_.slot;
-    return cell(offset, m_.add);
+    return cell(run_start() + m_.run + (m_.arrows ? m_.arrow : 0.0f), m_.add);
 }
 
 Rect ButtonStrip::occupied() const {
@@ -156,8 +178,8 @@ Rect ButtonStrip::region_pad(const Rect& slot, const CustomButton& button) const
         return box;
     }
 
-    // Letterboxed, not stretched. The pad is a scale model of a PC rectangle,
-    // and a model with the wrong proportions aims wrong: the middle of a wide
+    // Letterboxed, not stretched. The pad is a scale model of a rectangle, and
+    // a model with the wrong proportions aims wrong: the middle of a wide
     // toolbar is not the middle of a square.
     const float aspect = static_cast<float>(button.target.w) / static_cast<float>(button.target.h);
     float w = box.w;
@@ -169,12 +191,29 @@ Rect ButtonStrip::region_pad(const Rect& slot, const CustomButton& button) const
     return Rect{box.x + (box.w - w) * 0.5f, box.y + (box.h - h) * 0.5f, w, h};
 }
 
-int ButtonStrip::button_at(int slot) const {
+double ButtonStrip::along(core::Vec2 a, core::Vec2 b) const {
+    return horizontal() ? a.x - b.x : a.y - b.y;
+}
+
+float ButtonStrip::wrapped_scroll() const {
+    return static_cast<float>(wrap(scroll_, content_length()));
+}
+
+int ButtonStrip::button_at(int k) const {
     const int n = count();
-    if (n == 0 || slot < 0 || slot >= m_.visible) {
+    if (n == 0 || k < 0) {
         return -1;
     }
-    return (first_ + slot) % n;
+    if (!scrollable()) {
+        return k < m_.visible ? k : -1;
+    }
+    // One past the last full slot is the one sliding in at the edge; the
+    // scissor decides how much of it is seen.
+    if (k > m_.visible) {
+        return -1;
+    }
+    const int base = static_cast<int>(wrapped_scroll() / m_.slot);
+    return (base + k) % n;
 }
 
 const CustomButton* ButtonStrip::pressed_button() const {
@@ -185,12 +224,20 @@ const CustomButton* ButtonStrip::pressed_button() const {
     return &(*buttons_)[static_cast<std::size_t>(press_slot_)];
 }
 
-void ButtonStrip::cycle(int delta) {
-    const int n = count();
-    if (n == 0) {
+void ButtonStrip::nudge(int slots) {
+    if (!scrollable()) {
         return;
     }
-    first_ = ((first_ + delta) % n + n) % n;
+    scroll_target_ =
+        std::round(scroll_ / m_.slot) * m_.slot + static_cast<double>(slots) * m_.slot;
+}
+
+void ButtonStrip::snap_to_slot() {
+    if (!scrollable()) {
+        scroll_target_ = scroll_;
+        return;
+    }
+    scroll_target_ = std::round(scroll_ / m_.slot) * m_.slot;
 }
 
 core::Vec2 ButtonStrip::map_into_region(const CustomButton& button, const Rect& pad,
@@ -215,7 +262,8 @@ bool ButtonStrip::hit_test(core::Vec2 p) {
     press_pos_ = p;
     press_seconds_ = 0.0;
     press_moved_ = false;
-    region_dragging_ = false;
+    scrolling_ = false;
+    scroll_at_press_ = scroll_;
 
     if (toggle_rect().contains(p)) {
         press_ = Press::Toggle;
@@ -238,14 +286,17 @@ bool ButtonStrip::hit_test(core::Vec2 p) {
         return true;
     }
 
-    for (int slot = 0; slot < m_.visible; ++slot) {
-        if (!slot_rect(slot).contains(p)) {
-            continue;
-        }
+    if (run_rect().contains(p)) {
         press_ = Press::Slot;
-        press_slot_ = button_at(slot);
-        // An empty slot still swallows the touch: it is part of the strip, and
-        // drawing through a gap in it would be a surprise.
+        for (int k = 0; k <= m_.visible; ++k) {
+            if (slot_rect(k).contains(p)) {
+                press_slot_ = button_at(k);
+                break;
+            }
+        }
+        // An empty run still takes the touch and can still be dragged: it is
+        // part of the strip, and a gap that draws through to the canvas would
+        // be a surprise.
         return true;
     }
 
@@ -257,33 +308,24 @@ void ButtonStrip::drag(core::Vec2 p) {
     if (press_ != Press::Slot) {
         return;
     }
-    if (distance(p, press_pos_) > kMoveSlopDp * density_) {
+    if (!press_moved_ && distance(p, press_pos_) > kMoveSlopDp * density_) {
         press_moved_ = true;
+        // Only a drag along the strip is a scroll. Across it is a finger
+        // sliding off, and cancelling the button without scrolling is the
+        // honest reading of that.
+        const double across = horizontal() ? p.y - press_pos_.y : p.x - press_pos_.x;
+        scrolling_ = scrollable() && std::abs(along(p, press_pos_)) > std::abs(across);
     }
-
-    const CustomButton* button = pressed_button();
-    if (button == nullptr || button->kind != ButtonKind::Region || !press_moved_) {
+    if (!scrolling_) {
         return;
     }
-
-    // Find the slot this button is sitting in, to rebuild its pad.
-    for (int slot = 0; slot < m_.visible; ++slot) {
-        if (button_at(slot) != press_slot_) {
-            continue;
-        }
-        const Rect pad = region_pad(slot_rect(slot), *button);
-        if (!region_dragging_) {
-            region_dragging_ = true;
-            // Only now is the press known to be a drag, so the button goes
-            // down where the finger first landed, not where it has got to.
-            emit_region(proto::PointerAction::Down, map_into_region(*button, pad, press_pos_));
-        }
-        emit_region(proto::PointerAction::Move, map_into_region(*button, pad, p));
-        return;
-    }
+    // Dragging towards the start of the strip brings later buttons in.
+    scroll_ = scroll_at_press_ - along(p, press_pos_);
+    scroll_target_ = scroll_;
 }
 
 void ButtonStrip::release(core::Vec2 p) {
+    (void)p;
     switch (press_) {
     case Press::Toggle:
         expanded_ = !expanded_;
@@ -292,11 +334,11 @@ void ButtonStrip::release(core::Vec2 p) {
         break;
 
     case Press::Prev:
-        cycle(-1);
+        nudge(-1);
         break;
 
     case Press::Next:
-        cycle(1);
+        nudge(1);
         break;
 
     case Press::Add:
@@ -304,25 +346,14 @@ void ButtonStrip::release(core::Vec2 p) {
         break;
 
     case Press::Slot: {
+        if (scrolling_) {
+            scrolling_ = false;
+            snap_to_slot();
+            break;
+        }
+        // Moving off a button cancels it, the way a button anywhere else does.
         const CustomButton* button = pressed_button();
-        if (button == nullptr) {
-            break;
-        }
-        if (region_dragging_) {
-            for (int slot = 0; slot < m_.visible; ++slot) {
-                if (button_at(slot) != press_slot_) {
-                    continue;
-                }
-                const Rect pad = region_pad(slot_rect(slot), *button);
-                emit_region(proto::PointerAction::Up, map_into_region(*button, pad, p));
-                break;
-            }
-            break;
-        }
-        // Moving off a plain button cancels it, the way a button anywhere else
-        // does. Region buttons never arrive here having moved: movement turned
-        // them into a drag.
-        if (!press_moved_) {
+        if (button != nullptr && !press_moved_) {
             activate(*button, press_pos_);
         }
         break;
@@ -334,26 +365,17 @@ void ButtonStrip::release(core::Vec2 p) {
 
     press_ = Press::None;
     press_slot_ = -1;
-    region_dragging_ = false;
-}
-
-void ButtonStrip::emit_region(proto::PointerAction action, core::Vec2 pc) {
-    last_region_pc_ = pc;
-    if (pointer_) {
-        pointer_(action, pc);
-    }
+    scrolling_ = false;
 }
 
 void ButtonStrip::cancel_press() {
-    if (region_dragging_) {
-        // The host has a mouse button down on the user's desktop because of
-        // us. Whatever else is going wrong, it does not get to stay down.
-        emit_region(proto::PointerAction::Cancel, last_region_pc_);
+    if (scrolling_) {
+        scrolling_ = false;
+        snap_to_slot();
     }
     press_ = Press::None;
     press_slot_ = -1;
     press_moved_ = false;
-    region_dragging_ = false;
 }
 
 void ButtonStrip::activate(const CustomButton& button, core::Vec2 at) {
@@ -362,24 +384,27 @@ void ButtonStrip::activate(const CustomButton& button, core::Vec2 at) {
         if (!pointer_) {
             break;
         }
-        const core::Vec2 pc{static_cast<double>(button.target.x),
-                            static_cast<double>(button.target.y)};
-        pointer_(proto::PointerAction::Down, pc);
-        pointer_(proto::PointerAction::Up, pc);
+        const core::Vec2 target{static_cast<double>(button.target.x),
+                                static_cast<double>(button.target.y)};
+        pointer_(proto::PointerAction::Down, target);
+        pointer_(proto::PointerAction::Up, target);
         break;
     }
 
     case ButtonKind::Region: {
-        // A tap on the model is a click at the matching spot, by the same
-        // mapping the drag uses.
-        for (int slot = 0; slot < m_.visible; ++slot) {
-            if (button_at(slot) != press_slot_) {
+        // Still works for buttons already on the device, but no longer offered
+        // in the editor -- see ButtonKind::Region in ButtonStore.hpp. Tap only
+        // now: a drag inside the strip scrolls the list.
+        for (int k = 0; k <= m_.visible; ++k) {
+            if (button_at(k) != press_slot_) {
                 continue;
             }
-            const Rect pad = region_pad(slot_rect(slot), button);
-            const core::Vec2 pc = map_into_region(button, pad, at);
-            emit_region(proto::PointerAction::Down, pc);
-            emit_region(proto::PointerAction::Up, pc);
+            const Rect pad = region_pad(slot_rect(k), button);
+            const core::Vec2 target = map_into_region(button, pad, at);
+            if (pointer_) {
+                pointer_(proto::PointerAction::Down, target);
+                pointer_(proto::PointerAction::Up, target);
+            }
             break;
         }
         break;
@@ -441,9 +466,13 @@ void ButtonStrip::draw(UiRenderer& ui) const {
         }
     }
 
-    for (int slot = 0; slot < m_.visible; ++slot) {
-        draw_slot(ui, slot);
+    // The extra slot is the one sliding in at the edge; the clip cuts it off
+    // at the end of the run rather than letting it cross the screen.
+    ui.set_clip(run_rect());
+    for (int k = 0; k <= m_.visible; ++k) {
+        draw_slot(ui, k);
     }
+    ui.clear_clip();
 
     // Plus sign.
     const Rect add = add_rect();
@@ -455,18 +484,18 @@ void ButtonStrip::draw(UiRenderer& ui) const {
     ui.rounded_rect(Rect{cx - thick * 0.5f, cy - len * 0.5f, thick, len}, thick * 0.5f, kAccent);
 }
 
-void ButtonStrip::draw_slot(UiRenderer& ui, int slot) const {
-    const int index = button_at(slot);
+void ButtonStrip::draw_slot(UiRenderer& ui, int k) const {
+    const int index = button_at(k);
     if (index < 0) {
         return;
     }
 
-    const Rect rect = slot_rect(slot);
+    const Rect rect = slot_rect(k);
     const float inset = 4.0f * density_;
     const Rect body{rect.x + inset, rect.y + inset, rect.w - inset * 2.0f, rect.h - inset * 2.0f};
 
     const CustomButton& button = (*buttons_)[static_cast<std::size_t>(index)];
-    const bool held = press_ == Press::Slot && press_slot_ == index;
+    const bool held = press_ == Press::Slot && press_slot_ == index && !press_moved_;
 
     ui.rounded_rect(body, 10.0f * density_, held ? kSlotPressed : kSlot);
 
@@ -518,8 +547,9 @@ void ButtonStrip::draw_labels(TextRenderer& text) const {
         return;
     }
 
-    for (int slot = 0; slot < m_.visible; ++slot) {
-        const int index = button_at(slot);
+    text.set_clip(run_rect());
+    for (int k = 0; k <= m_.visible; ++k) {
+        const int index = button_at(k);
         if (index < 0) {
             continue;
         }
@@ -527,10 +557,11 @@ void ButtonStrip::draw_labels(TextRenderer& text) const {
         if (button.label.empty()) {
             continue;
         }
-        const Rect rect = slot_rect(slot);
+        const Rect rect = slot_rect(k);
         text.draw(button.label, rect.x + rect.w * 0.5f, rect.y + rect.h - 19.0f * density_,
                   12.0f * density_, Color{0.86f, 0.89f, 0.95f, 1.0f}, TextAlign::Center);
     }
+    text.clear_clip();
 
     if (!labels_loaded_) {
         return;

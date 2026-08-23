@@ -8,6 +8,8 @@
 #define NOMINMAX
 #include <windows.h>
 
+#include <dwmapi.h>
+
 namespace digitiz::host {
 
 namespace {
@@ -61,8 +63,32 @@ std::string process_name_of(DWORD pid) {
     return narrow(begin, static_cast<int>(len - (begin - path)));
 }
 
+// GetWindowRect includes the invisible resize border DWM keeps outside the
+// frame -- about seven pixels on each side, which is exactly the sort of
+// silent offset that makes a hand-measured coordinate land next to the button
+// instead of on it. The extended frame bounds are what the user sees.
+bool visible_frame(HWND hwnd, RECT& out) {
+    if (::DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &out, sizeof(out)) == S_OK) {
+        return true;
+    }
+    return ::GetWindowRect(hwnd, &out) != 0;
+}
+
 class Win32ForegroundWatcher final : public IForegroundWatcher {
 public:
+    bool focused_window_bounds(core::Recti& out) const override {
+        const HWND hwnd = ::GetForegroundWindow();
+        if (hwnd == nullptr) {
+            return false;
+        }
+        RECT r{};
+        if (!visible_frame(hwnd, r)) {
+            return false;
+        }
+        out = core::Recti{r.left, r.top, r.right - r.left, r.bottom - r.top};
+        return out.w > 0 && out.h > 0;
+    }
+
     bool poll(ForegroundWindow& out) override {
         const HWND hwnd = ::GetForegroundWindow();
 

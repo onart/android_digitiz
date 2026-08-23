@@ -66,8 +66,9 @@ target_include_directories(digitiz_host_lib PUBLIC src)
 target_link_libraries(digitiz_host_lib PUBLIC digitiz::common digitiz_imgui)
 
 if(WIN32)
-    # Shcore: GetDpiForMonitor.  ws2_32: sockets.
-    target_link_libraries(digitiz_host_lib PUBLIC Shcore ws2_32)
+    # Shcore: GetDpiForMonitor.  ws2_32: sockets.  Dwmapi: the visible window
+    # frame, which is not what GetWindowRect reports.
+    target_link_libraries(digitiz_host_lib PUBLIC Shcore ws2_32 Dwmapi)
 endif()
 
 add_executable(digitiz_host src/main.cpp)

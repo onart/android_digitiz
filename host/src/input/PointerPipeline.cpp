@@ -18,7 +18,7 @@ void PointerPipeline::set_enabled(bool on) {
     DZ_INFO("injection %s", on ? "ENABLED" : "DISABLED");
 }
 
-void PointerPipeline::handle(const proto::Pointer& p) {
+void PointerPipeline::handle(const proto::Pointer& in) {
     ++stats_.received;
 
     if (!enabled_) {
@@ -26,10 +26,24 @@ void PointerPipeline::handle(const proto::Pointer& p) {
         return;
     }
 
-    if ((p.flags & proto::kPointerRelative) != 0) {
+    if ((in.flags & proto::kPointerRelative) != 0) {
         ++stats_.relative_events;
-        handle_relative(p);
+        handle_relative(in);
         return;
+    }
+
+    proto::Pointer p = in;
+    if ((p.flags & proto::kPointerWindowRelative) != 0) {
+        core::Recti window{};
+        if (!window_bounds_ || !window_bounds_(window)) {
+            // Nothing has the focus, or it refuses to be measured. Dropped
+            // rather than fallen back to treating the offset as a desktop
+            // coordinate, which would click somewhere unrelated.
+            ++stats_.dropped_no_window;
+            return;
+        }
+        p.x += window.x;
+        p.y += window.y;
     }
 
     // UP and CANCEL are always honoured wherever they land: refusing to

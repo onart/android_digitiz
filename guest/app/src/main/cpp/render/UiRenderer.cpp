@@ -98,8 +98,23 @@ void UiRenderer::begin(int surface_w, int surface_h) {
 }
 
 void UiRenderer::end() {
+    clear_clip();
     glBindVertexArray(0);
     glDisable(GL_BLEND);
+}
+
+void UiRenderer::set_clip(Rect rect) {
+    // glScissor counts from the bottom left; everything else here counts from
+    // the top left.
+    const GLint x = static_cast<GLint>(rect.x);
+    const GLint y = static_cast<GLint>(static_cast<float>(surface_h_) - (rect.y + rect.h));
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(x, y, static_cast<GLsizei>(rect.w < 0.0f ? 0.0f : rect.w),
+              static_cast<GLsizei>(rect.h < 0.0f ? 0.0f : rect.h));
+}
+
+void UiRenderer::clear_clip() {
+    glDisable(GL_SCISSOR_TEST);
 }
 
 void UiRenderer::rounded_rect(Rect rect, float radius, Color fill) {

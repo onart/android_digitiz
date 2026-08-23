@@ -121,10 +121,30 @@ struct Pointer {          // 24 bytes
     uint8_t  action;      // 0=DOWN 1=MOVE 2=UP 3=CANCEL 4=HOVER(예약)
     uint8_t  button;      // 0=LEFT 1=RIGHT 2=MIDDLE
     uint8_t  pointer_id;  // M1은 항상 0
-    uint8_t  flags;       // 예약, 0
+    uint8_t  flags;       // 아래
     float    pressure;    // 0.0~1.0, 미지원이면 1.0
 };
 ```
+
+**flags**
+
+| 비트 | 이름 | 뜻 |
+|---|---|---|
+| 0 | `RELATIVE` | x, y가 위치가 아니라 델타다. 슬라이딩 모드 |
+| 1 | `GESTURE_START` | 제스처의 첫 이벤트. 호스트가 실제 커서를 다시 읽는다 |
+| 2 | `WINDOW_RELATIVE` | x, y가 데스크톱이 아니라 **활성 창 안의 오프셋**이다 |
+
+`WINDOW_RELATIVE` 는 커스텀 버튼이 쓴다. "저장 아이콘"을 뜻하는 버튼은 창이
+옮겨지거나 다른 모니터에서 열려도 계속 그걸 뜻해야 하는데, 데스크톱 좌표는
+그러지 못한다. 호스트는 메시지가 도착한 시점에 포커스를 가진 창의 **보이는
+프레임**을 기준으로 푼다. 포커스를 가진 창이 없으면 **버리고 로그에 남긴다** —
+사용자 데스크톱의 엉뚱한 곳을 클릭하는 것보다 아무 데도 안 누르는 게 낫다.
+
+보이는 프레임은 `GetWindowRect` 가 아니라
+`DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` 다. 전자는 DWM이 프레임
+바깥에 두는 보이지 않는 리사이즈 테두리를 포함하는데, 이 기기에서 재보니
+사방 8픽셀이었다. 손으로 잰 좌표가 버튼 옆을 누르게 만드는 딱 그런 종류의
+조용한 오차다.
 
 **액션 시맨틱**
 

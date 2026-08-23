@@ -37,6 +37,13 @@ public:
     void begin(int surface_w, int surface_h);
     void end();
 
+    // Restricts drawing to a rectangle, in surface pixels. Needed by anything
+    // that scrolls: a partially scrolled item has to be cut off at the edge of
+    // its container instead of spilling across the screen. Nests nothing --
+    // set it, draw, clear it.
+    void set_clip(Rect rect);
+    void clear_clip();
+
     void rounded_rect(Rect rect, float radius, Color fill);
 
     // Outline drawn inward from the edge, so the shape never grows past its

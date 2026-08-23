@@ -40,6 +40,17 @@ enum class MouseButton : std::uint8_t { Left = 0, Right = 1, Middle = 2 };
 inline constexpr std::uint8_t kPointerRelative = 1u << 0;
 inline constexpr std::uint8_t kPointerGestureStart = 1u << 1;
 
+// The coordinates are an offset inside the host's focused window rather than
+// desktop pixels. Custom buttons use this: a button that means "the save icon"
+// has to keep meaning that when the window is moved or opened on another
+// monitor, and a desktop coordinate does not.
+//
+// Resolved against the visible frame of whatever has the focus at the moment
+// the message arrives. If nothing does, the event is dropped rather than
+// guessed at -- clicking the wrong place on someone's desktop is worse than
+// not clicking.
+inline constexpr std::uint8_t kPointerWindowRelative = 1u << 2;
+
 const char* to_string(PointerAction action) noexcept;
 const char* to_string(MouseButton button) noexcept;
 const char* to_string(HostOs os) noexcept;

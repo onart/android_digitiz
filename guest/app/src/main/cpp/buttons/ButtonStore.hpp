@@ -19,11 +19,13 @@ namespace digitiz::guest {
 inline constexpr const char* kButtonsFileName = "buttons.txt";
 
 enum class ButtonKind : std::uint8_t {
-    // Tap clicks one place on the PC.
+    // Tap clicks one place, given as an offset inside the focused window.
     Point = 0,
-    // The button is a scale model of a PC rectangle: touching it clicks the
-    // matching spot inside that rectangle, dragging drags there. The view does
-    // not move.
+    // A scale model of a rectangle: touching it clicks the matching spot
+    // inside. Retired -- it reads well on paper and is fiddly in the hand, a
+    // postage stamp standing in for a toolbar. The editor no longer offers it
+    // and dragging one now scrolls the strip instead, but buttons already on a
+    // device keep working, and the number stays reserved either way.
     Region = 1,
     // Tap sends a key combination.
     Shortcut = 2,
@@ -32,7 +34,11 @@ enum class ButtonKind : std::uint8_t {
 struct CustomButton {
     ButtonKind kind = ButtonKind::Point;
     std::string label;
-    // Point uses x/y. Region uses all four. Shortcut uses none.
+    // Point uses x/y, Region all four, Shortcut none.
+    //
+    // Offsets inside the host's focused window, not desktop pixels. A button
+    // that means "the save icon" has to keep meaning that when the window is
+    // moved or opened on another monitor.
     core::Recti target{};
     std::uint8_t modifiers = 0; // proto::kMod* bits
     std::string key;            // key name, lowercase

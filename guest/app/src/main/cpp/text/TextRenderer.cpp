@@ -297,6 +297,7 @@ void TextRenderer::begin(int surface_w, int surface_h) {
     if (program_ == 0) {
         return;
     }
+    surface_h_ = surface_h;
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -308,9 +309,23 @@ void TextRenderer::begin(int surface_w, int surface_h) {
 }
 
 void TextRenderer::end() {
+    clear_clip();
     glBindTexture(GL_TEXTURE_2D, 0);
     glBindVertexArray(0);
     glDisable(GL_BLEND);
+}
+
+void TextRenderer::set_clip(Rect rect) {
+    // Bottom-left origin, as in UiRenderer.
+    const GLint x = static_cast<GLint>(rect.x);
+    const GLint y = static_cast<GLint>(static_cast<float>(surface_h_) - (rect.y + rect.h));
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(x, y, static_cast<GLsizei>(rect.w < 0.0f ? 0.0f : rect.w),
+              static_cast<GLsizei>(rect.h < 0.0f ? 0.0f : rect.h));
+}
+
+void TextRenderer::clear_clip() {
+    glDisable(GL_SCISSOR_TEST);
 }
 
 float TextRenderer::draw(std::string_view text, float x, float y, float size_px, Color color,

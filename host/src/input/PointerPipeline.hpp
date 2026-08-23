@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 
+#include <digitiz/core/geometry.hpp>
 #include <digitiz/proto/messages.hpp>
 
 #include "input/InputInjector.hpp"
@@ -31,6 +32,7 @@ public:
         std::uint64_t smoothed_points = 0;
         std::uint64_t keys_sent = 0;
         std::uint64_t keys_unknown = 0;
+        std::uint64_t dropped_no_window = 0;
     };
 
     // Curve fitting between samples. Absolute strokes only — in slide mode it
@@ -43,6 +45,12 @@ public:
     // on its side must not move the user's cursor.
     using ScreenTest = std::function<bool(std::int32_t, std::int32_t)>;
     void set_screen_test(ScreenTest test) { on_screen_ = std::move(test); }
+
+    // Where the focused window is, for pointers flagged window-relative.
+    // Returning false drops the event: a button that cannot be placed must not
+    // be placed approximately.
+    using WindowBounds = std::function<bool(core::Recti&)>;
+    void set_window_bounds(WindowBounds bounds) { window_bounds_ = std::move(bounds); }
 
     explicit PointerPipeline(IInputInjector& injector) : injector_(&injector) {}
 
@@ -84,6 +92,7 @@ private:
 
     IInputInjector* injector_;
     ScreenTest on_screen_;
+    WindowBounds window_bounds_;
     SplineSmoother smoother_;
 
     // Relative mode tracks the cursor itself. Kept as doubles so a slow drag

@@ -9,6 +9,8 @@
 #include <memory>
 #include <string>
 
+#include <digitiz/core/geometry.hpp>
+
 namespace digitiz::host {
 
 struct ForegroundWindow {
@@ -42,6 +44,14 @@ public:
     // frame costs a pointer comparison — the expensive part, resolving the
     // name, only runs when the window actually changed — and cannot miss.
     virtual bool poll(ForegroundWindow& out) = 0;
+
+    // The visible frame of whatever has the focus right now, in desktop
+    // pixels. Read live rather than from the poll above, because a window can
+    // be dragged without the focus ever changing.
+    //
+    // Called from the transport thread on every window-relative pointer, so it
+    // must not touch the polling state.
+    virtual bool focused_window_bounds(core::Recti& out) const = 0;
 };
 
 // Returns nullptr on platforms without an implementation yet.

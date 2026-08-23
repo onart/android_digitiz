@@ -24,10 +24,10 @@
     <string name="button_kind_region">Region</string>
     <string name="button_kind_shortcut">Shortcut</string>
     <string name="button_field_name">Name (optional)</string>
-    <string name="button_field_point">1920, 540</string>
+    <string name="button_field_point">120, 48</string>
     <string name="button_field_region">1600, 0, 320, 900</string>
     <string name="button_field_shortcut">ctrl+shift+s</string>
-    <string name="button_hint_point">Desktop coordinates to click. Read them off the host window.</string>
+    <string name="button_hint_point">Offset inside the focused window. Hover the target and read it off the host window.</string>
     <string name="button_hint_region">Left, top, width, height. The button becomes a scale model of that area: touch it to click inside, drag to drag.</string>
     <string name="button_hint_shortcut">Modifiers and one key, joined by +.</string>
     <string name="button_error_point">Enter two numbers: x, y</string>

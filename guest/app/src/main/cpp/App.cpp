@@ -386,10 +386,11 @@ void App::send_button_pointer(proto::PointerAction action, core::Vec2 pc) {
     p.y = static_cast<std::int32_t>(std::lround(pc.y));
     p.action = action;
     p.button = proto::MouseButton::Left;
-    // Absolute whatever the input mode is. A button names a place on the PC,
-    // and that meaning does not change because the drawing surface has been
-    // switched to relative.
-    p.flags = 0;
+    // Never the surface-relative mode: a button names a place, and that
+    // meaning does not change because the drawing surface has been switched to
+    // relative. It is window-relative instead, so the host resolves it against
+    // whatever has the focus when it arrives.
+    p.flags = proto::kPointerWindowRelative;
     link_.send(proto::encode(p));
 }
 

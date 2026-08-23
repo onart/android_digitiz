@@ -67,6 +67,9 @@ bool HostApp::init() {
         std::lock_guard lock(layout_mutex_);
         return layout_.on_a_screen(x, y);
     });
+    pipeline_->set_window_bounds([this](core::Recti& out) {
+        return foreground_ && foreground_->focused_window_bounds(out);
+    });
 
     refresh_layout(true);
     DZ_INFO("host ready");
@@ -615,14 +618,28 @@ void HostApp::draw_status_panel() {
     std::int32_t cursor_x = 0;
     std::int32_t cursor_y = 0;
     if (injector_->cursor_pos(cursor_x, cursor_y)) {
-        ImGui::Text("Cursor: %d, %d", cursor_x, cursor_y);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Copy")) {
-            char buffer[64];
-            std::snprintf(buffer, sizeof(buffer), "%d, %d", cursor_x, cursor_y);
-            ImGui::SetClipboardText(buffer);
+        // The window-relative pair is the one to type into the phone, because
+        // that is what a button stores. The desktop pair is kept beside it for
+        // everything else that still speaks in screen coordinates.
+        core::Recti window{};
+        const bool have_window = foreground_ && foreground_->focused_window_bounds(window);
+        if (have_window) {
+            const std::int32_t rx = cursor_x - window.x;
+            const std::int32_t ry = cursor_y - window.y;
+            ImGui::Text("Cursor: %d, %d in window", rx, ry);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy")) {
+                char buffer[64];
+                std::snprintf(buffer, sizeof(buffer), "%d, %d", rx, ry);
+                ImGui::SetClipboardText(buffer);
+            }
+            ImGui::SetItemTooltip(
+                "What a custom button stores. Hover the target, read here, type on the phone.");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(desktop %d, %d)", cursor_x, cursor_y);
+        } else {
+            ImGui::Text("Cursor: %d, %d on the desktop; no focused window", cursor_x, cursor_y);
         }
-        ImGui::SetItemTooltip("Where to read the numbers a custom button on the phone asks for.");
     }
 
     // --- display ---
@@ -674,9 +691,10 @@ void HostApp::draw_status_panel() {
                     static_cast<unsigned long long>(s.inject_failures));
         ImGui::Text("stroke: %s   clamped coords: %llu", stroke ? "ACTIVE" : "idle",
                     static_cast<unsigned long long>(injector_->clamped_count()));
-        ImGui::Text("shortcuts sent %llu   unknown key names %llu",
+        ImGui::Text("shortcuts sent %llu   unknown key names %llu   no focused window %llu",
                     static_cast<unsigned long long>(s.keys_sent),
-                    static_cast<unsigned long long>(s.keys_unknown));
+                    static_cast<unsigned long long>(s.keys_unknown),
+                    static_cast<unsigned long long>(s.dropped_no_window));
         if (ImGui::SmallButton("Reset stats")) {
             std::lock_guard lock(pipeline_mutex_);
             pipeline_->reset_stats();

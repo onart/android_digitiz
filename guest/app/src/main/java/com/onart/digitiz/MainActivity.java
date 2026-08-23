@@ -124,6 +124,14 @@ public class MainActivity extends GameActivity {
     private static final int KIND_REGION = 1;
     private static final int KIND_SHORTCUT = 2;
 
+    /**
+     * Region buttons are retired: a postage stamp standing in for a toolbar
+     * reads well on paper and is fiddly in the hand. The kind still loads and
+     * still works for anything already saved on a device -- it just cannot be
+     * created any more. Put it back in this array to offer it again.
+     */
+    private static final int[] OFFERED_KINDS = {KIND_POINT, KIND_SHORTCUT};
+
     /** Must match proto::kMod* in messages.hpp. */
     private static final int MOD_CTRL = 1;
     private static final int MOD_SHIFT = 2;
@@ -205,15 +213,16 @@ public class MainActivity extends GameActivity {
 
         final RadioGroup kinds = new RadioGroup(this);
         kinds.setOrientation(RadioGroup.HORIZONTAL);
-        final int[] kindLabels = {R.string.button_kind_point, R.string.button_kind_region,
-                R.string.button_kind_shortcut};
-        for (int i = 0; i < kindLabels.length; ++i) {
+        for (final int offered : OFFERED_KINDS) {
             final RadioButton option = new RadioButton(this);
-            option.setId(i + 1); // RadioGroup tracks the choice by id, and 0 means none
-            option.setText(kindLabels[i]);
+            // Keyed by kind rather than by position, so retiring one does not
+            // renumber the others. RadioGroup reads 0 as "nothing checked".
+            option.setId(offered + 1);
+            option.setText(labelForKind(offered));
             kinds.addView(option);
         }
-        kinds.check(kind + 1);
+        // Editing a retired kind would otherwise leave nothing checked.
+        kinds.check(isOffered(kind) ? kind + 1 : KIND_POINT + 1);
         root.addView(kinds);
 
         // The app is locked to landscape, and in landscape an IME defaults to
@@ -302,6 +311,22 @@ public class MainActivity extends GameActivity {
         nativeButtonSaved(index, kind, name, numbers[0], numbers[1], region ? numbers[2] : 0,
                 region ? numbers[3] : 0, 0, "");
         dialog.dismiss();
+    }
+
+    private static boolean isOffered(int kind) {
+        for (final int offered : OFFERED_KINDS) {
+            if (offered == kind) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int labelForKind(int kind) {
+        if (kind == KIND_SHORTCUT) {
+            return R.string.button_kind_shortcut;
+        }
+        return kind == KIND_REGION ? R.string.button_kind_region : R.string.button_kind_point;
     }
 
     private void applyKindHints(int kind, TextView hint, EditText valueField) {

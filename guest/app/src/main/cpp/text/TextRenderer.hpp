@@ -48,6 +48,13 @@ public:
     void begin(int surface_w, int surface_h);
     void end();
 
+    // Restricts drawing to a rectangle, in surface pixels. Needed by anything
+    // that scrolls: a partially scrolled item has to be cut off at the edge of
+    // its container instead of spilling across the screen. Not nestable --
+    // set it, draw, clear it.
+    void set_clip(Rect rect);
+    void clear_clip();
+
     // `y` is the top of the line. Returns the advance width in pixels.
     float draw(std::string_view text, float x, float y, float size_px, Color color,
                TextAlign align = TextAlign::Left, bool bold = false);
@@ -80,6 +87,7 @@ private:
 
     GLuint program_ = 0;
     GLuint vao_ = 0;
+    int surface_h_ = 0;
     GLint u_viewport_ = -1;
     GLint u_rect_ = -1;
     GLint u_color_ = -1;

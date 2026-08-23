@@ -600,3 +600,59 @@ TEST_CASE("a key the injector refuses is counted, not retried") {
     CHECK(p.stats().keys_unknown == 1);
     CHECK(p.stats().keys_sent == 0);
 }
+
+
+TEST_CASE("a window-relative pointer is placed against the focused window") {
+    FakeInjector inj;
+    PointerPipeline p(inj);
+    p.set_enabled(true);
+    p.set_window_bounds([](digitiz::core::Recti& out) {
+        out = digitiz::core::Recti{300, 120, 800, 600};
+        return true;
+    });
+
+    p.handle(proto::Pointer{.x = 40,
+                            .y = 25,
+                            .action = proto::PointerAction::Down,
+                            .flags = proto::kPointerWindowRelative});
+    p.handle(proto::Pointer{.x = 40,
+                            .y = 25,
+                            .action = proto::PointerAction::Up,
+                            .flags = proto::kPointerWindowRelative});
+
+    REQUIRE(inj.calls.size() == 2);
+    CHECK(inj.calls[0] == "down LEFT 340,145");
+    CHECK(inj.calls[1] == "up LEFT 340,145");
+}
+
+TEST_CASE("with nothing focused a window-relative pointer is dropped, not guessed") {
+    FakeInjector inj;
+    PointerPipeline p(inj);
+    p.set_enabled(true);
+    p.set_window_bounds([](digitiz::core::Recti&) { return false; });
+
+    p.handle(proto::Pointer{.x = 40,
+                            .y = 25,
+                            .action = proto::PointerAction::Down,
+                            .flags = proto::kPointerWindowRelative});
+
+    // Treating the offset as a desktop coordinate would click somewhere
+    // unrelated on the user's screen, which is the failure this guards.
+    CHECK(inj.calls.empty());
+    CHECK(p.stats().dropped_no_window == 1);
+    CHECK_FALSE(p.stroke_active());
+}
+
+TEST_CASE("an unflagged pointer is still a desktop coordinate") {
+    FakeInjector inj;
+    PointerPipeline p(inj);
+    p.set_enabled(true);
+    p.set_window_bounds([](digitiz::core::Recti& out) {
+        out = digitiz::core::Recti{300, 120, 800, 600};
+        return true;
+    });
+
+    p.handle(proto::Pointer{.x = 40, .y = 25, .action = proto::PointerAction::Move});
+    REQUIRE(inj.calls.size() == 1);
+    CHECK(inj.calls[0] == "move 40,25");
+}

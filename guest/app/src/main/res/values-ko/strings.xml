@@ -20,7 +20,7 @@
     <string name="button_kind_region">영역</string>
     <string name="button_kind_shortcut">단축키</string>
     <string name="button_field_name">이름 (선택)</string>
-    <string name="button_hint_point">클릭할 데스크톱 좌표. 호스트 창에서 읽으면 된다.</string>
+    <string name="button_hint_point">활성 창 기준 상대 좌표. 대상 위에 마우스를 올리고 호스트 창에서 읽으면 된다.</string>
     <string name="button_hint_region">왼쪽, 위, 너비, 높이. 버튼이 그 영역의 축소판이 되어, 누르면 안쪽을 클릭하고 문지르면 드래그한다.</string>
     <string name="button_hint_shortcut">조합키와 키 하나를 +로 잇는다.</string>
     <string name="button_error_point">숫자 두 개를 입력: x, y</string>
