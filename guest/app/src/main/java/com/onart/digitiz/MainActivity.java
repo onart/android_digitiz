@@ -27,6 +27,11 @@ import android.widget.Toast;
 
 import com.google.androidgamesdk.GameActivity;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.function.Consumer;
+
 /**
  * Everything that matters happens in C++. This exists because GameActivity
  * needs a Java entry point, and for the few things that are Java-only:
@@ -148,6 +153,109 @@ public class MainActivity extends GameActivity {
                                                  int w, int h, int modifiers, String key);
 
     private static native void nativeButtonCommand(int index, int command);
+
+    /** Must match PresetCommandKind in ActivityBridge.hpp. */
+    private static final int PRESET_SELECT = 0;
+    private static final int PRESET_CREATE = 1;
+    private static final int PRESET_RENAME = 2;
+    private static final int PRESET_BIND = 3;
+    private static final int PRESET_UNBIND = 4;
+    private static final int PRESET_DELETE = 5;
+
+    private static native void nativePresetCommand(int command, int index, String text);
+
+    /**
+     * Called from native when the strip's tab is held. The presets come in
+     * already formatted -- which one is current, and what each is bound to, is
+     * decided on the native side, so this only has to show a list.
+     */
+    @SuppressWarnings("unused")
+    public void showPresetMenu(final String[] names, final int current,
+                               final String activeWindow) {
+        runOnUiThread(() -> {
+            final boolean haveWindow = activeWindow != null && !activeWindow.isEmpty();
+            final List<String> items = new ArrayList<>(Arrays.asList(names));
+            final int firstAction = items.size();
+
+            items.add(getString(R.string.preset_new));
+            items.add(getString(R.string.preset_rename));
+            items.add(haveWindow ? getString(R.string.preset_bind, activeWindow)
+                    : getString(R.string.preset_bind_none));
+            items.add(getString(R.string.preset_unbind));
+            items.add(getString(R.string.preset_delete));
+
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.preset_title)
+                    .setItems(items.toArray(new String[0]), (dialog, which) -> {
+                        if (which < firstAction) {
+                            nativePresetCommand(PRESET_SELECT, which, null);
+                            return;
+                        }
+                        switch (which - firstAction) {
+                            case 0:
+                                promptForName(R.string.preset_new, "",
+                                        name -> nativePresetCommand(PRESET_CREATE, -1, name));
+                                break;
+                            case 1:
+                                promptForName(R.string.preset_rename, names[current],
+                                        name -> nativePresetCommand(PRESET_RENAME, current, name));
+                                break;
+                            case 2:
+                                if (haveWindow) {
+                                    nativePresetCommand(PRESET_BIND, current, activeWindow);
+                                }
+                                break;
+                            case 3:
+                                nativePresetCommand(PRESET_UNBIND, current, null);
+                                break;
+                            default:
+                                new AlertDialog.Builder(this)
+                                        .setTitle(R.string.preset_delete_title)
+                                        .setMessage(getString(R.string.preset_delete_message,
+                                                names[current]))
+                                        .setNegativeButton(android.R.string.cancel, null)
+                                        .setPositiveButton(R.string.preset_delete,
+                                                (d, w) -> nativePresetCommand(PRESET_DELETE,
+                                                        current, null))
+                                        .show();
+                                break;
+                        }
+                    })
+                    .show();
+        });
+    }
+
+    /** One text field and an OK, refusing to return an empty name. */
+    private void promptForName(int titleRes, String initial, Consumer<String> onName) {
+        final EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setText(initial);
+        field.setSelection(field.getText().length());
+        field.setImeOptions(EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_DONE);
+
+        final int pad = dp(20);
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, dp(8), pad, 0);
+        root.addView(field);
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(titleRes)
+                .setView(root)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, null)
+                .create();
+        dialog.show();
+        dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(v -> {
+            final String name = field.getText().toString().trim();
+            if (name.isEmpty()) {
+                Toast.makeText(this, R.string.preset_error_name, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            onName.accept(name);
+            dialog.dismiss();
+        });
+    }
 
     /** Called from native. An {@code index} below zero creates a new button. */
     @SuppressWarnings("unused")

@@ -1,6 +1,7 @@
 #include "buttons/ButtonStore.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 
@@ -14,6 +15,7 @@ namespace {
 // is corrupt, and refusing to grow without bound is cheaper than finding out
 // what a million buttons does to the frame time.
 constexpr std::size_t kMaxButtons = 256;
+constexpr std::size_t kMaxPresets = 64;
 
 std::vector<std::string> split_tabs(const std::string& line) {
     std::vector<std::string> parts;
@@ -31,6 +33,39 @@ std::vector<std::string> split_tabs(const std::string& line) {
 
 int to_int(const std::string& s) {
     return std::atoi(s.c_str());
+}
+
+bool iequals(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const auto lhs = static_cast<unsigned char>(a[i]);
+        const auto rhs = static_cast<unsigned char>(b[i]);
+        if (std::tolower(lhs) != std::tolower(rhs)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Fields 1..8 of a B record, which are also fields 0..7 of the pre-preset
+// format. Returns false when there are not enough of them.
+bool parse_button(const std::vector<std::string>& f, std::size_t at, CustomButton& out) {
+    if (f.size() < at + 8) {
+        return false;
+    }
+    const int kind = to_int(f[at]);
+    if (kind < 0 || kind > static_cast<int>(ButtonKind::Shortcut)) {
+        return false;
+    }
+    out.kind = static_cast<ButtonKind>(kind);
+    out.label = sanitize_label(f[at + 1]);
+    out.target = core::Recti{to_int(f[at + 2]), to_int(f[at + 3]), to_int(f[at + 4]),
+                             to_int(f[at + 5])};
+    out.modifiers = static_cast<std::uint8_t>(to_int(f[at + 6]));
+    out.key = f[at + 7];
+    return true;
 }
 
 } // namespace
@@ -56,6 +91,9 @@ void ButtonStore::load(const char* external_dir) {
         return;
     }
 
+    std::vector<Preset> loaded;
+    std::size_t buttons = 0;
+
     std::string line;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') {
@@ -66,41 +104,55 @@ void ButtonStore::load(const char* external_dir) {
         }
 
         const std::vector<std::string> f = split_tabs(line);
-        if (f.size() < 8) {
+
+        if (f[0] == "P") {
+            if (loaded.size() >= kMaxPresets) {
+                DZ_WARN("button file has more than %zu presets; ignoring the rest", kMaxPresets);
+                break;
+            }
+            Preset preset;
+            preset.name = f.size() > 1 ? sanitize_label(f[1]) : std::string();
+            preset.match = f.size() > 2 ? sanitize_label(f[2]) : std::string();
+            loaded.push_back(std::move(preset));
+            continue;
+        }
+
+        // "B" records, and bare numbers from before presets existed.
+        const std::size_t at = f[0] == "B" ? 1 : 0;
+        CustomButton button;
+        if (!parse_button(f, at, button)) {
             DZ_WARN("skipping malformed button line: %s", line.c_str());
             continue;
         }
-
-        const int kind = to_int(f[0]);
-        if (kind < 0 || kind > static_cast<int>(ButtonKind::Shortcut)) {
-            DZ_WARN("skipping button with unknown kind %d", kind);
-            continue;
+        if (loaded.empty()) {
+            loaded.push_back(Preset{});
         }
-
-        CustomButton b;
-        b.kind = static_cast<ButtonKind>(kind);
-        b.label = sanitize_label(f[1]);
-        b.target = core::Recti{to_int(f[2]), to_int(f[3]), to_int(f[4]), to_int(f[5])};
-        b.modifiers = static_cast<std::uint8_t>(to_int(f[6]));
-        b.key = f[7];
-        buttons_.push_back(std::move(b));
-
-        if (buttons_.size() >= kMaxButtons) {
-            DZ_WARN("button file has more than %zu entries; ignoring the rest", kMaxButtons);
+        if (buttons >= kMaxButtons) {
+            DZ_WARN("button file has more than %zu buttons; ignoring the rest", kMaxButtons);
             break;
         }
+        loaded.back().buttons.push_back(std::move(button));
+        ++buttons;
     }
 
-    DZ_INFO("loaded %zu custom button(s) from %s", buttons_.size(), path_.c_str());
+    if (!loaded.empty()) {
+        presets_ = std::move(loaded);
+    }
+    current_ = 0;
+
+    DZ_INFO("loaded %zu button(s) across %zu preset(s) from %s", buttons, presets_.size(),
+            path_.c_str());
 }
 
+// --- the preset in use -----------------------------------------------------
+
 void ButtonStore::add(CustomButton button) {
-    if (buttons_.size() >= kMaxButtons) {
+    if (mutable_buttons().size() >= kMaxButtons) {
         DZ_WARN("refusing to add a button: already at the %zu limit", kMaxButtons);
         return;
     }
     button.label = sanitize_label(std::move(button.label));
-    buttons_.push_back(std::move(button));
+    mutable_buttons().push_back(std::move(button));
     save();
 }
 
@@ -109,7 +161,7 @@ void ButtonStore::replace(int index, CustomButton button) {
         return;
     }
     button.label = sanitize_label(std::move(button.label));
-    buttons_[static_cast<std::size_t>(index)] = std::move(button);
+    mutable_buttons()[static_cast<std::size_t>(index)] = std::move(button);
     save();
 }
 
@@ -117,7 +169,7 @@ void ButtonStore::remove(int index) {
     if (!valid(index)) {
         return;
     }
-    buttons_.erase(buttons_.begin() + index);
+    mutable_buttons().erase(mutable_buttons().begin() + index);
     save();
 }
 
@@ -125,16 +177,77 @@ void ButtonStore::move(int index, int delta) {
     if (!valid(index) || delta == 0) {
         return;
     }
-    const int last = static_cast<int>(buttons_.size()) - 1;
+    const int last = static_cast<int>(mutable_buttons().size()) - 1;
     const int to = std::clamp(index + delta, 0, last);
     if (to == index) {
         return;
     }
 
-    CustomButton moved = std::move(buttons_[static_cast<std::size_t>(index)]);
-    buttons_.erase(buttons_.begin() + index);
-    buttons_.insert(buttons_.begin() + to, std::move(moved));
+    CustomButton moved = std::move(mutable_buttons()[static_cast<std::size_t>(index)]);
+    mutable_buttons().erase(mutable_buttons().begin() + index);
+    mutable_buttons().insert(mutable_buttons().begin() + to, std::move(moved));
     save();
+}
+
+// --- the presets themselves ------------------------------------------------
+
+bool ButtonStore::select(int index) {
+    if (!valid_preset(index) || index == current_) {
+        return false;
+    }
+    current_ = index;
+    return true;
+}
+
+void ButtonStore::create(std::string name) {
+    if (presets_.size() >= kMaxPresets) {
+        DZ_WARN("refusing to add a preset: already at the %zu limit", kMaxPresets);
+        return;
+    }
+    Preset preset;
+    preset.name = sanitize_label(std::move(name));
+    presets_.push_back(std::move(preset));
+    // Switching to it is the only sensible next step: it is empty, and the
+    // reason to make one is to put something in it.
+    current_ = static_cast<int>(presets_.size()) - 1;
+    save();
+}
+
+void ButtonStore::rename(int index, std::string name) {
+    if (!valid_preset(index)) {
+        return;
+    }
+    presets_[static_cast<std::size_t>(index)].name = sanitize_label(std::move(name));
+    save();
+}
+
+void ButtonStore::set_match(int index, std::string process) {
+    if (!valid_preset(index)) {
+        return;
+    }
+    presets_[static_cast<std::size_t>(index)].match = sanitize_label(std::move(process));
+    save();
+}
+
+void ButtonStore::remove_preset(int index) {
+    if (!valid_preset(index) || presets_.size() <= 1) {
+        return;
+    }
+    presets_.erase(presets_.begin() + index);
+    current_ = std::clamp(current_, 0, static_cast<int>(presets_.size()) - 1);
+    save();
+}
+
+int ButtonStore::preset_for(const std::string& process) const {
+    if (process.empty()) {
+        return -1;
+    }
+    for (std::size_t i = 0; i < presets_.size(); ++i) {
+        if (!presets_[i].match.empty() && iequals(presets_[i].match, process)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
 }
 
 void ButtonStore::save() const {
@@ -147,11 +260,14 @@ void ButtonStore::save() const {
         DZ_WARN("could not write custom buttons to %s", path_.c_str());
         return;
     }
-    out << "# digitiz custom buttons: kind\tlabel\tx\ty\tw\th\tmodifiers\tkey\n";
-    for (const CustomButton& b : buttons_) {
-        out << static_cast<int>(b.kind) << '\t' << b.label << '\t' << b.target.x << '\t'
-            << b.target.y << '\t' << b.target.w << '\t' << b.target.h << '\t'
-            << static_cast<int>(b.modifiers) << '\t' << b.key << '\n';
+    out << "# digitiz buttons.  P\tname\tmatch   |   B\tkind\tlabel\tx\ty\tw\th\tmodifiers\tkey\n";
+    for (const Preset& preset : presets_) {
+        out << "P\t" << preset.name << '\t' << preset.match << '\n';
+        for (const CustomButton& b : preset.buttons) {
+            out << "B\t" << static_cast<int>(b.kind) << '\t' << b.label << '\t' << b.target.x
+                << '\t' << b.target.y << '\t' << b.target.w << '\t' << b.target.h << '\t'
+                << static_cast<int>(b.modifiers) << '\t' << b.key << '\n';
+        }
     }
 }
 

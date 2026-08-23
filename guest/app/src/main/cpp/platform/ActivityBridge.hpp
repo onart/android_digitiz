@@ -36,6 +36,27 @@ void show_button_editor(GameActivity* activity, int index, int kind, const std::
 
 void show_button_menu(GameActivity* activity, int index, const std::string& label);
 
+// Opens the preset menu. `names` is what to list, `current` which one is in
+// use, and `active_window` the program the bind entry would attach to.
+void show_preset_menu(GameActivity* activity, const std::vector<std::string>& names, int current,
+                      const std::string& active_window);
+
+// Must match MainActivity's PRESET_* constants.
+enum class PresetCommandKind : int {
+    Select = 0,
+    Create = 1,
+    Rename = 2,
+    Bind = 3,
+    Unbind = 4,
+    Delete = 5,
+};
+
+struct PresetCommand {
+    PresetCommandKind kind = PresetCommandKind::Select;
+    int index = -1;
+    std::string text;
+};
+
 struct ButtonEdit {
     int index = -1; // below zero creates
     int kind = 0;
@@ -64,5 +85,7 @@ struct ButtonCommand {
 // Everything the dialogs produced since the last call. They land on the UI
 // thread; this hands them to the render thread, which owns the store.
 void drain_button_events(std::vector<ButtonEdit>& edits, std::vector<ButtonCommand>& commands);
+
+void drain_preset_events(std::vector<PresetCommand>& commands);
 
 } // namespace digitiz::guest

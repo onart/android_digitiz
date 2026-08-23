@@ -36,8 +36,21 @@ double wrap(double value, double span) {
 
 } // namespace
 
+const std::vector<CustomButton>& ButtonStrip::buttons() const noexcept {
+    static const std::vector<CustomButton> kNone;
+    return store_ == nullptr ? kNone : store_->buttons();
+}
+
 void ButtonStrip::set_active_window(std::string process) {
     active_process_ = std::move(process);
+}
+
+void ButtonStrip::set_preset_name(std::string name) {
+    preset_name_ = std::move(name);
+}
+
+void ButtonStrip::set_suggestion(std::string preset_name) {
+    suggested_name_ = std::move(preset_name);
 }
 
 void ButtonStrip::layout(int surface_w, int surface_h, float density) {
@@ -94,15 +107,20 @@ void ButtonStrip::advance(double dt_seconds) {
         }
     }
 
-    if (press_ != Press::Slot || press_moved_) {
+    const bool holdable = press_ == Press::Slot || press_ == Press::Toggle;
+    if (!holdable || press_moved_) {
         return;
     }
     press_seconds_ += dt_seconds;
     if (press_seconds_ < kLongPressSeconds) {
         return;
     }
-    long_press_ = press_slot_;
-    // Consumed here, so the release does not also fire the button.
+    if (press_ == Press::Toggle) {
+        preset_menu_requested_ = true;
+    } else {
+        long_press_ = press_slot_;
+    }
+    // Consumed here, so the release does not also toggle or fire anything.
     press_ = Press::None;
     press_slot_ = -1;
 }
@@ -167,6 +185,23 @@ core::Vec2 ButtonStrip::caption_origin() const {
     return core::Vec2{strip.x, strip.y + strip.h + 8.0f * density_};
 }
 
+Rect ButtonStrip::suggestion_bar() const {
+    const core::Vec2 o = caption_origin();
+    return Rect{static_cast<float>(o.x), static_cast<float>(o.y) - 9.0f * density_,
+                230.0f * density_, 30.0f * density_};
+}
+
+Rect ButtonStrip::accept_rect() const {
+    const Rect bar = suggestion_bar();
+    const float d = 24.0f * density_;
+    return Rect{bar.x + 3.0f * density_, bar.y + 3.0f * density_, d, d};
+}
+
+Rect ButtonStrip::decline_rect() const {
+    const Rect a = accept_rect();
+    return Rect{a.x + a.w + 6.0f * density_, a.y, a.w, a.h};
+}
+
 Rect ButtonStrip::region_pad(const Rect& slot, const CustomButton& button) const {
     const float pad = 6.0f * density_;
     const float label = 15.0f * density_;
@@ -214,11 +249,10 @@ int ButtonStrip::button_at(int k) const {
 }
 
 const CustomButton* ButtonStrip::pressed_button() const {
-    if (buttons_ == nullptr || press_slot_ < 0 ||
-        static_cast<std::size_t>(press_slot_) >= buttons_->size()) {
+    if (press_slot_ < 0 || static_cast<std::size_t>(press_slot_) >= buttons().size()) {
         return nullptr;
     }
-    return &(*buttons_)[static_cast<std::size_t>(press_slot_)];
+    return &buttons()[static_cast<std::size_t>(press_slot_)];
 }
 
 void ButtonStrip::nudge(int slots) {
@@ -261,6 +295,19 @@ bool ButtonStrip::hit_test(core::Vec2 p) {
     press_moved_ = false;
     scrolling_ = false;
     scroll_at_press_ = scroll_;
+
+    // The offer sits outside the strip, on the canvas, so it is checked first
+    // and only while it is actually up.
+    if (expanded_ && suggesting()) {
+        if (accept_rect().contains(p)) {
+            press_ = Press::Accept;
+            return true;
+        }
+        if (decline_rect().contains(p)) {
+            press_ = Press::Decline;
+            return true;
+        }
+    }
 
     if (toggle_rect().contains(p)) {
         press_ = Press::Toggle;
@@ -340,6 +387,16 @@ void ButtonStrip::release(core::Vec2 p) {
 
     case Press::Add:
         add_requested_ = true;
+        break;
+
+    case Press::Accept:
+        suggestion_accepted_ = true;
+        suggested_name_.clear();
+        break;
+
+    case Press::Decline:
+        suggestion_declined_ = true;
+        suggested_name_.clear();
         break;
 
     case Press::Slot: {
@@ -433,6 +490,24 @@ int ButtonStrip::take_long_press() noexcept {
     return index;
 }
 
+bool ButtonStrip::take_preset_menu_request() noexcept {
+    const bool asked = preset_menu_requested_;
+    preset_menu_requested_ = false;
+    return asked;
+}
+
+bool ButtonStrip::take_suggestion_accepted() noexcept {
+    const bool yes = suggestion_accepted_;
+    suggestion_accepted_ = false;
+    return yes;
+}
+
+bool ButtonStrip::take_suggestion_declined() noexcept {
+    const bool no = suggestion_declined_;
+    suggestion_declined_ = false;
+    return no;
+}
+
 // --- drawing ---------------------------------------------------------------
 
 void ButtonStrip::draw(UiRenderer& ui) const {
@@ -471,6 +546,20 @@ void ButtonStrip::draw(UiRenderer& ui) const {
     }
     ui.clear_clip();
 
+    if (suggesting()) {
+        // Only the discs here. The tick and the cross are glyphs, drawn in the
+        // text pass: a cross is two diagonals, and the shape vocabulary here is
+        // axis-aligned rounded rects, which can only ever make a plus.
+        const Rect bar = suggestion_bar();
+        ui.rounded_rect(bar, bar.h * 0.5f, Color{0.16f, 0.17f, 0.21f, 0.96f});
+
+        const Rect yes = accept_rect();
+        ui.rounded_rect(yes, yes.h * 0.5f, Color{kAccent.r, kAccent.g, kAccent.b, 0.95f});
+
+        const Rect no = decline_rect();
+        ui.rounded_rect(no, no.h * 0.5f, Color{0.30f, 0.31f, 0.36f, 0.95f});
+    }
+
     // Plus sign.
     const Rect add = add_rect();
     const float len = 18.0f * density_;
@@ -491,7 +580,7 @@ void ButtonStrip::draw_slot(UiRenderer& ui, int k) const {
     const float inset = 4.0f * density_;
     const Rect body{rect.x + inset, rect.y + inset, rect.w - inset * 2.0f, rect.h - inset * 2.0f};
 
-    const CustomButton& button = (*buttons_)[static_cast<std::size_t>(index)];
+    const CustomButton& button = buttons()[static_cast<std::size_t>(index)];
     const bool held = press_ == Press::Slot && press_slot_ == index && !press_moved_;
 
     ui.rounded_rect(body, 10.0f * density_, held ? kSlotPressed : kSlot);
@@ -550,7 +639,7 @@ void ButtonStrip::draw_labels(TextRenderer& text) const {
         if (index < 0) {
             continue;
         }
-        const CustomButton& button = (*buttons_)[static_cast<std::size_t>(index)];
+        const CustomButton& button = buttons()[static_cast<std::size_t>(index)];
         if (button.label.empty()) {
             continue;
         }
@@ -564,14 +653,38 @@ void ButtonStrip::draw_labels(TextRenderer& text) const {
         return;
     }
     const core::Vec2 origin = caption_origin();
-    const bool known = !active_process_.empty();
     const float x = static_cast<float>(origin.x);
     const float y = static_cast<float>(origin.y);
+    const float size = 11.0f * density_;
+
+    if (suggesting()) {
+        const Rect yes = accept_rect();
+        const Rect no = decline_rect();
+        const float mark = 15.0f * density_;
+        const float mark_y = yes.y + yes.h * 0.5f - mark * 0.62f;
+        text.draw("\xE2\x9C\x93", yes.x + yes.w * 0.5f, mark_y, mark,
+                  Color{1.0f, 1.0f, 1.0f, 0.98f}, TextAlign::Center);
+        text.draw("\xE2\x9C\x95", no.x + no.w * 0.5f, mark_y, mark,
+                  Color{0.88f, 0.90f, 0.94f, 0.98f}, TextAlign::Center);
+
+        // The buttons come first so their positions never depend on how long
+        // the names happen to be, which is what lets them be hit-tested
+        // without measuring text during input.
+        text.draw(active_process_ + "  >  " + suggested_name_,
+                  no.x + no.w + 10.0f * density_, y, size, Color{0.80f, 0.86f, 0.94f, 0.98f});
+        return;
+    }
+
+    const bool known = !active_process_.empty();
     const float advance =
-        text.draw(caption_label_, x, y, 11.0f * density_, Color{0.50f, 0.54f, 0.62f, 0.95f});
-    text.draw(known ? active_process_ : caption_none_, x + advance + 6.0f * density_, y,
-              11.0f * density_,
-              known ? Color{0.72f, 0.78f, 0.86f, 0.95f} : Color{0.44f, 0.47f, 0.55f, 0.95f});
+        text.draw(caption_label_, x, y, size, Color{0.50f, 0.54f, 0.62f, 0.95f});
+    const float after =
+        text.draw(known ? active_process_ : caption_none_, x + advance + 6.0f * density_, y, size,
+                  known ? Color{0.72f, 0.78f, 0.86f, 0.95f} : Color{0.44f, 0.47f, 0.55f, 0.95f});
+    if (!preset_name_.empty()) {
+        text.draw("/ " + preset_name_, x + advance + after + 14.0f * density_, y, size,
+                  Color{0.55f, 0.92f, 0.75f, 0.95f});
+    }
 }
 
 } // namespace digitiz::guest

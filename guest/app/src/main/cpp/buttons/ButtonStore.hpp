@@ -1,12 +1,17 @@
 #pragma once
 
-// The user's custom buttons, and the file they live in.
+// The user's custom buttons, grouped into presets, and the file they live in.
 //
-// Stored beside settings.txt in the app's external files directory, one button
+// Stored beside settings.txt in the app's external files directory, one record
 // per line, tab separated. Not JSON: the fields are flat and fixed, a parser
 // would be more code than the whole file, and `adb shell cat` on a line format
-// is readable when something goes wrong. Unknown trailing fields are ignored
-// on load, so a later version can add one without orphaning existing buttons.
+// is readable when something goes wrong.
+//
+//   P <name> <match>                     opens a preset
+//   B <kind> <label> <x> <y> <w> <h> <mods> <key>    a button in it
+//
+// A line beginning with a digit is a button from before presets existed and is
+// read into the first preset, so an existing device keeps its buttons.
 
 #include <cstdint>
 #include <string>
@@ -46,14 +51,28 @@ struct CustomButton {
     bool operator==(const CustomButton&) const = default;
 };
 
+struct Preset {
+    // Empty on the preset that exists because one always has to; the UI shows
+    // a localized name for it rather than inventing an English one down here.
+    std::string name;
+    // Executable name to offer this preset for, as ACTIVE_WINDOW reports it.
+    // Empty means it is only ever chosen by hand.
+    std::string match;
+    std::vector<CustomButton> buttons;
+};
+
 class ButtonStore {
 public:
     void load(const char* external_dir);
 
-    const std::vector<CustomButton>& buttons() const noexcept { return buttons_; }
-    std::size_t size() const noexcept { return buttons_.size(); }
+    // --- the preset in use ---
+
+    const std::vector<CustomButton>& buttons() const noexcept {
+        return presets_[static_cast<std::size_t>(current_)].buttons;
+    }
+    std::size_t size() const noexcept { return buttons().size(); }
     bool valid(int index) const noexcept {
-        return index >= 0 && static_cast<std::size_t>(index) < buttons_.size();
+        return index >= 0 && static_cast<std::size_t>(index) < buttons().size();
     }
 
     void add(CustomButton button);
@@ -63,11 +82,39 @@ public:
     // list is displayed in order, so this is how the user arranges it.
     void move(int index, int delta);
 
+    // --- the presets themselves ---
+
+    const std::vector<Preset>& presets() const noexcept { return presets_; }
+    int current() const noexcept { return current_; }
+    const Preset& current_preset() const noexcept {
+        return presets_[static_cast<std::size_t>(current_)];
+    }
+    bool valid_preset(int index) const noexcept {
+        return index >= 0 && static_cast<std::size_t>(index) < presets_.size();
+    }
+
+    // True when the selection actually moved.
+    bool select(int index);
+    void create(std::string name);
+    void rename(int index, std::string name);
+    void set_match(int index, std::string process);
+    // The last preset cannot be removed: something has to hold the buttons.
+    void remove_preset(int index);
+
+    // Which preset asks for this program, or -1. Matched case-insensitively,
+    // because nothing guarantees how a process name is capitalised.
+    int preset_for(const std::string& process) const;
+
 private:
     void save() const;
+    std::vector<CustomButton>& mutable_buttons() {
+        return presets_[static_cast<std::size_t>(current_)].buttons;
+    }
 
     std::string path_;
-    std::vector<CustomButton> buttons_;
+    // Never empty: load() puts an unnamed one in if the file did not.
+    std::vector<Preset> presets_{Preset{}};
+    int current_ = 0;
 };
 
 // Anything that would break the line format is stripped rather than escaped:

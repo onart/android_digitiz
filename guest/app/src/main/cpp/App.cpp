@@ -37,7 +37,7 @@ App::App(android_app* app)
     menu_.set_strip_vertical(settings_.strip_vertical());
     apply_throttle();
 
-    strip_.set_buttons(&buttons_.buttons());
+    strip_.set_store(&buttons_);
     strip_.set_orientation(settings_.strip_vertical() ? StripOrientation::Vertical
                                                       : StripOrientation::Horizontal);
     strip_.set_expanded(settings_.strip_expanded());
@@ -136,6 +136,13 @@ void App::on_command(std::int32_t cmd) {
             }
             menu_.load_labels(text_);
             strip_.load_labels(text_);
+            if (default_preset_name_.empty()) {
+                // The preset that exists because one always has to carries no
+                // name of its own; naming it down in the store would mean
+                // inventing an English one there.
+                default_preset_name_ = text_.localized("preset_default");
+                refresh_preset_offer();
+            }
             if (app_->config != nullptr) {
                 const int dpi = AConfiguration_getDensity(app_->config);
                 if (dpi > 0) {
@@ -245,6 +252,25 @@ void App::frame() {
     if (strip_.take_add_request()) {
         open_button_editor(-1);
     }
+    if (strip_.take_preset_menu_request()) {
+        open_preset_menu();
+    }
+    if (strip_.take_suggestion_accepted()) {
+        if (buttons_.select(offered_preset_)) {
+            DZ_INFO("preset: switched to %s for %s",
+                    preset_display_name(buttons_.current()).c_str(), focused_process_.c_str());
+            relayout_widgets();
+        }
+        refresh_preset_offer();
+    }
+    if (strip_.take_suggestion_declined()) {
+        // Remembered against the program, not the moment: the focus can come
+        // back to it half a second later and being asked again would be worse
+        // than not asking at all.
+        offer_declined_for_ = focused_process_;
+        refresh_preset_offer();
+    }
+    apply_preset_events();
     if (const int held = strip_.take_long_press(); buttons_.valid(held)) {
         show_button_menu(app_->activity, held,
                          buttons_.buttons()[static_cast<std::size_t>(held)].label);
@@ -313,7 +339,13 @@ void App::apply_pending() {
         // Beside the buttons rather than in the drawer: it is the answer to
         // which preset is up, and an answer you have to open a drawer to read
         // cannot do that job.
+        if (active_window != focused_process_) {
+            // A different program, so an earlier refusal no longer applies.
+            offer_declined_for_.clear();
+        }
+        focused_process_ = active_window;
         strip_.set_active_window(std::move(active_window));
+        refresh_preset_offer();
     }
     if (cancel) {
         // The host already released on its side; this just stops us from
@@ -376,6 +408,80 @@ void App::apply_button_events() {
     // How many buttons there are decides how many slots fit and whether the
     // cycling arrows have to be paid for, so the run is measured again.
     relayout_widgets();
+}
+
+std::string App::preset_display_name(int index) const {
+    if (!buttons_.valid_preset(index)) {
+        return default_preset_name_;
+    }
+    const std::string& name = buttons_.presets()[static_cast<std::size_t>(index)].name;
+    return name.empty() ? default_preset_name_ : name;
+}
+
+void App::refresh_preset_offer() {
+    strip_.set_preset_name(preset_display_name(buttons_.current()));
+
+    const int wanted = buttons_.preset_for(focused_process_);
+    const bool worth_asking =
+        wanted >= 0 && wanted != buttons_.current() && focused_process_ != offer_declined_for_;
+
+    offered_preset_ = worth_asking ? wanted : -1;
+    strip_.set_suggestion(worth_asking ? preset_display_name(wanted) : std::string());
+}
+
+void App::open_preset_menu() {
+    std::vector<std::string> names;
+    names.reserve(buttons_.presets().size());
+    for (std::size_t i = 0; i < buttons_.presets().size(); ++i) {
+        const Preset& preset = buttons_.presets()[i];
+        std::string entry = preset_display_name(static_cast<int>(i));
+        if (static_cast<int>(i) == buttons_.current()) {
+            entry = "> " + entry;
+        }
+        if (!preset.match.empty()) {
+            entry += "   (" + preset.match + ")";
+        }
+        names.push_back(std::move(entry));
+    }
+    show_preset_menu(app_->activity, names, buttons_.current(), focused_process_);
+}
+
+void App::apply_preset_events() {
+    std::vector<PresetCommand> commands;
+    drain_preset_events(commands);
+    if (commands.empty()) {
+        return;
+    }
+
+    for (const PresetCommand& c : commands) {
+        switch (c.kind) {
+        case PresetCommandKind::Select:
+            buttons_.select(c.index);
+            break;
+        case PresetCommandKind::Create:
+            buttons_.create(c.text);
+            break;
+        case PresetCommandKind::Rename:
+            buttons_.rename(c.index, c.text);
+            break;
+        case PresetCommandKind::Bind:
+            // Bound to the program that was in focus when the menu opened,
+            // which is the one the user was looking at when they decided.
+            buttons_.set_match(c.index, c.text);
+            break;
+        case PresetCommandKind::Unbind:
+            buttons_.set_match(c.index, std::string());
+            break;
+        case PresetCommandKind::Delete:
+            buttons_.remove_preset(c.index);
+            break;
+        }
+    }
+
+    // A different preset means a different number of buttons, and binding
+    // changes what should be offered.
+    relayout_widgets();
+    refresh_preset_offer();
 }
 
 void App::open_button_editor(int index) {

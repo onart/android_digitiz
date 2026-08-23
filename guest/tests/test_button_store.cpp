@@ -194,3 +194,120 @@ TEST_CASE("with nowhere to save, buttons still work for this run") {
     CHECK(store.size() == 1);
     CHECK(store.buttons()[0].label == "volatile");
 }
+
+// --- presets ---------------------------------------------------------------
+
+TEST_CASE("a file from before presets existed loads into the first one") {
+    const TempDir dir("legacy");
+    {
+        std::ofstream out(dir.file());
+        out << "# digitiz custom buttons\n";
+        out << "0\told\t10\t20\t0\t0\t0\t\n";
+        out << "2\tsave\t0\t0\t0\t0\t1\ts\n";
+    }
+
+    ButtonStore store;
+    store.load(dir.str().c_str());
+    REQUIRE(store.presets().size() == 1);
+    REQUIRE(store.size() == 2);
+    CHECK(store.buttons()[0].label == "old");
+    CHECK(store.buttons()[1].key == "s");
+    // Nothing on disk named it, so the UI supplies the name.
+    CHECK(store.presets()[0].name.empty());
+}
+
+TEST_CASE("presets keep their own buttons across a round trip") {
+    const TempDir dir("presets");
+    {
+        ButtonStore store;
+        store.load(dir.str().c_str());
+        store.add(point("a", 1, 1));
+
+        store.create("Krita");
+        store.set_match(store.current(), "krita.exe");
+        store.add(point("b", 2, 2));
+        store.add(point("c", 3, 3));
+    }
+
+    ButtonStore reloaded;
+    reloaded.load(dir.str().c_str());
+    REQUIRE(reloaded.presets().size() == 2);
+    CHECK(reloaded.presets()[0].buttons.size() == 1);
+    CHECK(reloaded.presets()[1].name == "Krita");
+    CHECK(reloaded.presets()[1].match == "krita.exe");
+    CHECK(reloaded.presets()[1].buttons.size() == 2);
+    // Loading always lands on the first preset; which one was in use is a
+    // property of the session, not of the file.
+    CHECK(reloaded.current() == 0);
+    CHECK(labels_of(reloaded) == std::vector<std::string>{"a"});
+}
+
+TEST_CASE("creating a preset switches to it, because it is empty on purpose") {
+    const TempDir dir("create");
+    ButtonStore store;
+    store.load(dir.str().c_str());
+    CHECK(store.current() == 0);
+
+    store.create("Second");
+    CHECK(store.current() == 1);
+    CHECK(store.size() == 0);
+}
+
+TEST_CASE("a program is matched to its preset, whatever the capitalisation") {
+    const TempDir dir("match");
+    ButtonStore store;
+    store.load(dir.str().c_str());
+    store.create("Krita");
+    store.set_match(store.current(), "Krita.exe");
+
+    CHECK(store.preset_for("krita.exe") == 1);
+    CHECK(store.preset_for("KRITA.EXE") == 1);
+    CHECK(store.preset_for("krita.ex") == -1);
+    CHECK(store.preset_for("msedge.exe") == -1);
+    CHECK(store.preset_for("") == -1);
+
+    // An unbound preset must never be matched, or the first one would swallow
+    // every program that has no preset of its own.
+    store.set_match(1, "");
+    CHECK(store.preset_for("krita.exe") == -1);
+}
+
+TEST_CASE("the last preset cannot be deleted, since something holds the buttons") {
+    const TempDir dir("delete");
+    ButtonStore store;
+    store.load(dir.str().c_str());
+    store.create("Second");
+    REQUIRE(store.presets().size() == 2);
+
+    store.remove_preset(1);
+    CHECK(store.presets().size() == 1);
+    CHECK(store.current() == 0);
+
+    store.remove_preset(0);
+    CHECK(store.presets().size() == 1);
+}
+
+TEST_CASE("deleting the preset in use leaves the selection somewhere valid") {
+    const TempDir dir("delete_current");
+    ButtonStore store;
+    store.load(dir.str().c_str());
+    store.create("Second");
+    store.create("Third");
+    REQUIRE(store.current() == 2);
+
+    store.remove_preset(2);
+    CHECK(store.presets().size() == 2);
+    CHECK(store.current() == 1);
+    CHECK(store.valid_preset(store.current()));
+}
+
+TEST_CASE("a tab in a preset name would split the line") {
+    const TempDir dir("preset_sanitize");
+    ButtonStore store;
+    store.load(dir.str().c_str());
+    store.create("two\tnames");
+    CHECK(store.presets()[1].name == "twonames");
+
+    store.set_match(1, "krita\texe");
+    CHECK(store.presets()[1].match == "kritaexe");
+}

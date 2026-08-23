@@ -67,7 +67,13 @@ private:
     void relayout_widgets();
     // Everything the Java dialogs produced since the last frame.
     void apply_button_events();
+    void apply_preset_events();
     void open_button_editor(int index);
+    void open_preset_menu();
+    // Recomputes what, if anything, to offer for the program now in focus, and
+    // refreshes the caption either way.
+    void refresh_preset_offer();
+    std::string preset_display_name(int index) const;
     void send_button_pointer(proto::PointerAction action, core::Vec2 pc);
     void send_button_shortcut(const CustomButton& button);
     bool pc_point_on_screen(core::Vec2 pc) const;
@@ -116,6 +122,15 @@ private:
     // The link dropping has to cancel any stroke, but that must happen on the
     // render thread — TouchRouter belongs to it.
     bool stroke_cancel_pending_ = false;
+
+    // Render-thread copies of what the network thread reported, kept because
+    // the preset offer has to be recomputed whenever either side changes.
+    std::string focused_process_;
+    // The program the user has already said no to. Cleared when the focus
+    // moves elsewhere, so the offer comes back if they return to it later.
+    std::string offer_declined_for_;
+    int offered_preset_ = -1;
+    std::string default_preset_name_;
 
     // Set once the view has been framed. Backgrounding and returning must not
     // throw away a pan and zoom the user set up by hand.

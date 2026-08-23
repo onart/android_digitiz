@@ -42,6 +42,19 @@
     <string name="button_menu_delete">Delete</string>
     <string name="button_delete_title">Delete this button?</string>
     <string name="button_delete_message">%1$s will be removed from this device.</string>
+
+    <!-- Presets. -->
+    <string name="preset_title">Presets</string>
+    <string name="preset_default">Default</string>
+    <string name="preset_new">New preset…</string>
+    <string name="preset_rename">Rename…</string>
+    <string name="preset_bind">Use for %1$s</string>
+    <string name="preset_bind_none">Use for the active program (none in focus)</string>
+    <string name="preset_unbind">Stop using for a program</string>
+    <string name="preset_delete">Delete preset</string>
+    <string name="preset_delete_title">Delete this preset?</string>
+    <string name="preset_delete_message">%1$s and its buttons will be removed.</string>
+    <string name="preset_error_name">Enter a name</string>
     <string name="status_waiting">Not connected</string>
     <string name="status_ready">Connected, injection off</string>
     <string name="status_live">Live</string>

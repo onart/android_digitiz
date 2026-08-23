@@ -27,9 +27,12 @@ enum class StripOrientation : std::uint8_t { Horizontal, Vertical };
 
 class ButtonStrip {
 public:
-    // Borrowed, not copied: the store and the strip both belong to the render
-    // thread, and a copy would only be a second thing to keep in step.
-    void set_buttons(const std::vector<CustomButton>* buttons) noexcept { buttons_ = buttons; }
+    // The store, not a list of buttons. Pointing straight at one preset's
+    // vector was a bug waiting twice over: it kept showing the old preset's
+    // buttons after a switch, and creating a preset reallocates the presets so
+    // the pointer would eventually dangle. Reading through the store means the
+    // answer cannot go stale.
+    void set_store(const ButtonStore* store) noexcept { store_ = store; }
 
     // How many buttons the strip is allowed to show at once. Zero asks for
     // the default, which is the most that fit in half the edge -- a strip is
@@ -62,6 +65,22 @@ public:
     // "why these buttons", so it has to be readable at the same time as them --
     // which is why it is here and not in the side menu drawer.
     void set_active_window(std::string process);
+    // The preset in use, shown beside the program.
+    void set_preset_name(std::string name);
+
+    // Offers a preset for the program now in focus. Deliberately an offer and
+    // not a switch: the focus can pass through half a dozen windows on the way
+    // to the one that was wanted, and a strip that rearranged itself each time
+    // would be unusable. Deliberately not modal either, for the same reason --
+    // it sits beside the strip and is replaced or dropped as the focus moves
+    // on. An empty name clears it.
+    void set_suggestion(std::string preset_name);
+    bool suggesting() const noexcept { return !suggested_name_.empty(); }
+    bool take_suggestion_accepted() noexcept;
+    bool take_suggestion_declined() noexcept;
+
+    // Holding the tab asks for the preset menu.
+    bool take_preset_menu_request() noexcept;
 
     // What the strip covers, so the minimap can stay out of the way.
     Rect occupied() const;
@@ -84,7 +103,7 @@ private:
     // What the finger came down on. Everything acts on release, so that a hold
     // can still turn out to be a long press and a slide can still turn out to
     // be a scroll.
-    enum class Press : std::uint8_t { None, Toggle, Prev, Next, Add, Slot };
+    enum class Press : std::uint8_t { None, Toggle, Prev, Next, Add, Slot, Accept, Decline };
 
     struct Metrics {
         float margin = 0.0f;
@@ -118,9 +137,16 @@ private:
     // the slot so its shape matches the PC area it stands for.
     Rect region_pad(const Rect& slot, const CustomButton& button) const;
     core::Vec2 caption_origin() const;
+    // The offer sits on the caption line, which runs across the screen in both
+    // orientations -- unlike the strip itself, which in the vertical case is
+    // 76dp wide and could not hold a name.
+    Rect suggestion_bar() const;
+    Rect accept_rect() const;
+    Rect decline_rect() const;
 
+    const std::vector<CustomButton>& buttons() const noexcept;
     int count() const noexcept {
-        return buttons_ == nullptr ? 0 : static_cast<int>(buttons_->size());
+        return store_ == nullptr ? 0 : static_cast<int>(store_->buttons().size());
     }
     bool scrollable() const noexcept { return m_.arrows; }
     float content_length() const noexcept { return static_cast<float>(count()) * m_.slot; }
@@ -138,7 +164,7 @@ private:
     // Distance along the strip, signed the way the content moves.
     double along(core::Vec2 a, core::Vec2 b) const;
 
-    const std::vector<CustomButton>* buttons_ = nullptr;
+    const ButtonStore* store_ = nullptr;
     StripOrientation orientation_ = StripOrientation::Horizontal;
     bool expanded_ = false;
 
@@ -168,11 +194,16 @@ private:
     bool add_requested_ = false;
     bool state_changed_ = false;
     int long_press_ = -1;
+    bool preset_menu_requested_ = false;
+    bool suggestion_accepted_ = false;
+    bool suggestion_declined_ = false;
 
     PointerSink pointer_;
     ShortcutSink shortcut_;
 
     std::string active_process_;
+    std::string preset_name_;
+    std::string suggested_name_;
     std::string caption_label_;
     std::string caption_none_;
     bool labels_loaded_ = false;

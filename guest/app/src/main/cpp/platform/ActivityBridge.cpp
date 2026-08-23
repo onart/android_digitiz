@@ -76,6 +76,7 @@ void report_exception(JNIEnv* env) {
 std::mutex g_inbox_mutex;
 std::vector<ButtonEdit> g_edits;
 std::vector<ButtonCommand> g_commands;
+std::vector<PresetCommand> g_preset_commands;
 
 std::string to_utf8(JNIEnv* env, jstring s) {
     if (s == nullptr) {
@@ -172,6 +173,48 @@ void drain_button_events(std::vector<ButtonEdit>& edits, std::vector<ButtonComma
     g_commands.clear();
 }
 
+void drain_preset_events(std::vector<PresetCommand>& commands) {
+    std::lock_guard lock(g_inbox_mutex);
+    commands.swap(g_preset_commands);
+    g_preset_commands.clear();
+}
+
+void show_preset_menu(GameActivity* activity, const std::vector<std::string>& names, int current,
+                      const std::string& active_window) {
+    ScopedEnv scoped(activity != nullptr ? activity->vm : nullptr);
+    JNIEnv* env = activity_env(activity, scoped);
+    if (env == nullptr) {
+        return;
+    }
+
+    jclass cls = env->GetObjectClass(activity->javaGameActivity);
+    jmethodID method =
+        env->GetMethodID(cls, "showPresetMenu", "([Ljava/lang/String;ILjava/lang/String;)V");
+    if (method == nullptr) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls);
+        DZ_WARN("presets: MainActivity has no showPresetMenu()");
+        return;
+    }
+
+    jclass string_class = env->FindClass("java/lang/String");
+    jobjectArray array =
+        env->NewObjectArray(static_cast<jsize>(names.size()), string_class, nullptr);
+    for (std::size_t i = 0; i < names.size(); ++i) {
+        jstring item = env->NewStringUTF(names[i].c_str());
+        env->SetObjectArrayElement(array, static_cast<jsize>(i), item);
+        env->DeleteLocalRef(item);
+    }
+
+    jstring window = env->NewStringUTF(active_window.c_str());
+    env->CallVoidMethod(activity->javaGameActivity, method, array, current, window);
+    report_exception(env);
+    env->DeleteLocalRef(window);
+    env->DeleteLocalRef(array);
+    env->DeleteLocalRef(string_class);
+    env->DeleteLocalRef(cls);
+}
+
 } // namespace digitiz::guest
 
 // ---------------------------------------------------------------------------
@@ -203,4 +246,17 @@ extern "C" JNIEXPORT void JNICALL Java_com_onart_digitiz_MainActivity_nativeButt
 
     std::lock_guard lock(g_inbox_mutex);
     g_commands.push_back(ButtonCommand{index, static_cast<ButtonCommandKind>(command)});
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_onart_digitiz_MainActivity_nativePresetCommand(
+    JNIEnv* env, jclass, jint command, jint index, jstring text) {
+    using namespace digitiz::guest;
+
+    PresetCommand out;
+    out.kind = static_cast<PresetCommandKind>(command);
+    out.index = index;
+    out.text = to_utf8(env, text);
+
+    std::lock_guard lock(g_inbox_mutex);
+    g_preset_commands.push_back(std::move(out));
 }
