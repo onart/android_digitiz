@@ -11,6 +11,7 @@
 
 #include "app/HostApp.hpp"
 #include "screen/CaptureProbe.hpp"
+#include "screen/Etc2Conformance.hpp"
 #include "ui/ImGuiShell.hpp"
 #include "ui/LogStore.hpp"
 
@@ -34,12 +35,15 @@ int main(int argc, char** argv) {
 
     bool selftest_only = false;
     bool capture_test = false;
+    bool etc2_test = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         if (arg == "--selftest") {
             selftest_only = true;
         } else if (arg == "--capture-test") {
             capture_test = true;
+        } else if (arg == "--etc2-test") {
+            etc2_test = true;
         }
     }
 
@@ -53,6 +57,10 @@ int main(int argc, char** argv) {
     });
 
     DZ_INFO("digitiz host starting");
+
+    if (etc2_test) {
+        return digitiz::host::run_etc2_conformance() ? 0 : 1;
+    }
 
     if (capture_test) {
         // Headless: measures what the desktop actually reports as changed,

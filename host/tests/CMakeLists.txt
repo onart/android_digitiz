@@ -8,6 +8,7 @@
 add_executable(digitiz_host_tests
     main.cpp
     test_absolute_coord.cpp
+    test_etc2.cpp
     test_key_names.cpp
     test_latency_stats.cpp
     test_pointer_pipeline.cpp
@@ -16,6 +17,7 @@ add_executable(digitiz_host_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/PointerPipeline.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/SplineSmoother.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/Win32KeyNames.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/screen/Etc2.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/screen/TileScheduler.cpp
 )
 
