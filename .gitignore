@@ -27,3 +27,7 @@ Thumbs.db
 
 # Dear ImGui writes its window layout next to wherever the host was started.
 imgui.ini
+
+# Written by the host running with --capture-test.
+capture_probe.bmp
+probe*.log

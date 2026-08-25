@@ -57,7 +57,9 @@ add_library(digitiz_host_lib STATIC
     src/input/Win32InputInjector.cpp
     src/platform/Win32ForegroundWatcher.cpp
     src/platform/Win32Process.cpp
+    src/screen/CaptureProbe.cpp
     src/screen/TileScheduler.cpp
+    src/screen/Win32DxgiFrameSource.cpp
     src/transport/AdbClient.cpp
     src/transport/AdbTransport.cpp
     src/ui/ImGuiShell.cpp
@@ -69,7 +71,8 @@ target_link_libraries(digitiz_host_lib PUBLIC digitiz::common digitiz_imgui)
 if(WIN32)
     # Shcore: GetDpiForMonitor.  ws2_32: sockets.  Dwmapi: the visible window
     # frame, which is not what GetWindowRect reports.
-    target_link_libraries(digitiz_host_lib PUBLIC Shcore ws2_32 Dwmapi)
+    # d3d11/dxgi: Desktop Duplication.
+    target_link_libraries(digitiz_host_lib PUBLIC Shcore ws2_32 Dwmapi d3d11 dxgi)
 endif()
 
 add_executable(digitiz_host src/main.cpp)

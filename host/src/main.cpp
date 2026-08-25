@@ -10,6 +10,7 @@
 #include <digitiz/core/log.hpp>
 
 #include "app/HostApp.hpp"
+#include "screen/CaptureProbe.hpp"
 #include "ui/ImGuiShell.hpp"
 #include "ui/LogStore.hpp"
 
@@ -32,9 +33,13 @@ int main(int argc, char** argv) {
     enable_dpi_awareness();
 
     bool selftest_only = false;
+    bool capture_test = false;
     for (int i = 1; i < argc; ++i) {
-        if (std::string_view(argv[i]) == "--selftest") {
+        const std::string_view arg(argv[i]);
+        if (arg == "--selftest") {
             selftest_only = true;
+        } else if (arg == "--capture-test") {
+            capture_test = true;
         }
     }
 
@@ -48,6 +53,15 @@ int main(int argc, char** argv) {
     });
 
     DZ_INFO("digitiz host starting");
+
+    if (capture_test) {
+        // Headless: measures what the desktop actually reports as changed,
+        // which is what the tile scheduler is built on top of.
+        digitiz::host::CaptureProbeResult result;
+        const bool ok =
+            digitiz::host::run_capture_probe(8, "capture_probe.bmp", result);
+        return ok ? 0 : 1;
+    }
 
     if (selftest_only) {
         // Headless: verify coordinate injection without opening a window.
