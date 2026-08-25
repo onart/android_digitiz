@@ -15,6 +15,16 @@
 
 namespace digitiz::host {
 
+// What a message is competing for. Interactive traffic is small and is the
+// reason the program exists; bulk is screen data, which can always be a frame
+// later. Kept apart above the socket, because once bytes are in the kernel
+// buffer no amount of ordering helps.
+enum class SendPriority : std::uint8_t {
+    Interactive = 0,
+    Bulk = 1,
+};
+
+
 // Fixed on the device side because the guest hard-codes it. The host side port
 // is ephemeral, so two hosts never fight over a port.
 inline constexpr int kDevicePort = 27183;
@@ -71,7 +81,10 @@ public:
     virtual bool start() = 0;
     virtual void stop() = 0;
 
-    virtual bool send(std::span<const std::byte> bytes) = 0;
+    // Interactive by default, because everything that existed before screen
+    // transfer was interactive and none of it should have to say so.
+    virtual bool send(std::span<const std::byte> bytes,
+                      SendPriority priority = SendPriority::Interactive) = 0;
     virtual TransportStatus status() const = 0;
 
     // Ends the current session without stopping the transport; it will go back

@@ -12,12 +12,14 @@ add_executable(digitiz_host_tests
     test_key_names.cpp
     test_latency_stats.cpp
     test_pointer_pipeline.cpp
+    test_send_queue.cpp
     test_spline_smoother.cpp
     test_tile_scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/PointerPipeline.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/SplineSmoother.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/Win32KeyNames.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/screen/Etc2.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/transport/SendQueue.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/screen/TileScheduler.cpp
 )
 

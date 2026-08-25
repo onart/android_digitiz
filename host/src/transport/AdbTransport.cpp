@@ -118,6 +118,7 @@ bool AdbTransport::start() {
     }
     set_state(TransportState::WaitingForDevice, "starting");
     thread_ = std::thread([this] { run(); });
+    sender_ = std::thread([this] { send_loop(); });
     return true;
 }
 
@@ -138,8 +139,14 @@ void AdbTransport::stop() {
         }
     }
 
+    // Wake the sender out of its wait before joining either thread.
+    send_cv_.notify_all();
+
     if (thread_.joinable()) {
         thread_.join();
+    }
+    if (sender_.joinable()) {
+        sender_.join();
     }
 
     close_client();
@@ -375,27 +382,82 @@ void AdbTransport::session_loop() {
     }
 }
 
-bool AdbTransport::send(std::span<const std::byte> bytes) {
-    std::lock_guard lock(send_mutex_);
-    if (!valid(client_)) {
-        return false;
+bool AdbTransport::send(std::span<const std::byte> bytes, SendPriority priority) {
+    if (bytes.empty()) {
+        return true;
     }
-
-    const sock_t client = as_sock(client_);
-    std::size_t sent = 0;
-    while (sent < bytes.size()) {
-        const int n = ::send(client, reinterpret_cast<const char*>(bytes.data()) + sent,
-                             static_cast<int>(bytes.size() - sent), 0);
-        if (n <= 0) {
-            DZ_WARN("send failed: %d", DZ_LAST_SOCK_ERROR);
+    {
+        std::lock_guard lock(send_mutex_);
+        if (!valid(client_)) {
             return false;
         }
-        sent += static_cast<std::size_t>(n);
+        std::vector<std::byte> message(bytes.begin(), bytes.end());
+        if (priority == SendPriority::Bulk) {
+            queue_.push_bulk(std::move(message));
+        } else {
+            queue_.push_interactive(std::move(message));
+        }
+        ++tx_messages_;
+        tx_bytes_ += bytes.size();
     }
+    send_cv_.notify_one();
 
-    ++tx_messages_;
-    tx_bytes_ += bytes.size();
+    // True means queued, not delivered. Nothing waits on delivery: callers
+    // that care learn about a dead link from the heartbeat, and blocking here
+    // is the thing this queue exists to stop.
     return true;
+}
+
+void AdbTransport::send_loop() {
+    // The most that reaches one ::send call. A blocking write of more than
+    // this is a stall nothing can preempt, so this is also the ceiling on how
+    // long the socket can be busy with a single call.
+    constexpr std::size_t kWriteChunk = 16u * 1024u;
+    std::vector<std::byte> chunk;
+
+    while (running_) {
+        sock_t client{};
+        {
+            std::unique_lock lock(send_mutex_);
+            send_cv_.wait_for(lock, std::chrono::milliseconds(100), [this] {
+                return !running_ || (!queue_.empty() && valid(client_));
+            });
+            if (!running_) {
+                return;
+            }
+            if (!valid(client_)) {
+                // No session. Anything queued belongs to a socket that is
+                // gone, and keeping it would deliver it to whoever connects
+                // next.
+                queue_.clear();
+                continue;
+            }
+
+            const std::span<const std::byte> pending = queue_.pending(kWriteChunk);
+            if (pending.empty()) {
+                continue;
+            }
+            // Copied so the socket call happens with the lock released. It is
+            // one chunk at most, and holding the lock across a blocking write
+            // would stall the pointer path this arrangement exists to protect.
+            chunk.assign(pending.begin(), pending.end());
+            client = as_sock(client_);
+        }
+
+        const int n = ::send(client, reinterpret_cast<const char*>(chunk.data()),
+                             static_cast<int>(chunk.size()), 0);
+        if (n <= 0) {
+            if (!dropping_) {
+                DZ_WARN("send failed: %d", DZ_LAST_SOCK_ERROR);
+            }
+            std::lock_guard lock(send_mutex_);
+            queue_.clear();
+            continue;
+        }
+
+        std::lock_guard lock(send_mutex_);
+        queue_.consume(static_cast<std::size_t>(n));
+    }
 }
 
 TransportStatus AdbTransport::status() const {

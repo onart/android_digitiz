@@ -14,7 +14,10 @@
 
 #include <digitiz/proto/framer.hpp>
 
+#include <condition_variable>
+
 #include "transport/AdbClient.hpp"
+#include "transport/SendQueue.hpp"
 #include "transport/Transport.hpp"
 
 namespace digitiz::host {
@@ -30,12 +33,16 @@ public:
     bool start() override;
     void stop() override;
 
-    bool send(std::span<const std::byte> bytes) override;
+    // The default is repeated here rather than inherited: HostApp holds the
+    // concrete type, so it is this declaration the callers see.
+    bool send(std::span<const std::byte> bytes,
+              SendPriority priority = SendPriority::Interactive) override;
     TransportStatus status() const override;
     void drop_session() override;
 
 private:
     void run();                       // transport thread entry
+    void send_loop();                 // sender thread entry
     bool serve_one_session();         // returns false to back off before retrying
     void session_loop();              // recv until the socket closes
     void close_client();
@@ -49,6 +56,11 @@ private:
     proto::Framer framer_;
 
     std::thread thread_;
+    // Sending has a thread of its own because the receive loop spends its life
+    // blocked in recv(). Without one, nothing would be draining the queue, and
+    // a queue nobody drains is just a slower socket.
+    std::thread sender_;
+    std::condition_variable send_cv_;
     std::atomic<bool> running_{false};
     // Set while we are tearing a session down on purpose, so the resulting
     // socket error is reported as intent rather than as a fault.
@@ -56,8 +68,10 @@ private:
 
     void sleep_interruptibly(int milliseconds);
 
-    // Guards the client socket against a concurrent send() from the UI thread.
+    // Guards the client socket and the queue against the UI thread, the
+    // receive loop, and the sender thread.
     mutable std::mutex send_mutex_;
+    SendQueue queue_;
     // SOCKET / int, held as uintptr_t so winsock stays out of this header.
     std::uintptr_t client_ = static_cast<std::uintptr_t>(-1);
     std::uintptr_t listener_ = static_cast<std::uintptr_t>(-1);

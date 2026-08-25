@@ -64,6 +64,7 @@ add_library(digitiz_host_lib STATIC
     src/screen/Win32DxgiFrameSource.cpp
     src/transport/AdbClient.cpp
     src/transport/AdbTransport.cpp
+    src/transport/SendQueue.cpp
     src/ui/ImGuiShell.cpp
 )
 
