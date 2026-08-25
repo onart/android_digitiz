@@ -120,6 +120,91 @@ struct HostState {
     bool injecting = false;
 };
 
+// --- 0x20 VIEWPORT_REQ (C->H) ----------------------------------------------
+
+enum class FrameFormat : std::uint8_t {
+    // Nothing is sent. The guest is drawing the grid on its own.
+    Off = 0,
+    // 4x4 blocks, 4 bits per pixel, then zstd over the whole batch. Required by
+    // GLES 3.0, so the guest can always decode it, and it decodes by being
+    // handed to the GPU rather than by being decoded at all.
+    Etc2Rgb8 = 1,
+    // Same idea, twice the size, noticeably better on text. GLES 3.2.
+    Astc4x4 = 2,
+    // The step up when block compression cannot fit the link.
+    H264 = 3,
+};
+
+const char* to_string(FrameFormat format) noexcept;
+
+// What the guest wants to see. Sent on connect and whenever the view or the
+// settings change; the host holds the last one and serves it until told
+// otherwise.
+struct ViewportReq {
+    // The desktop region the guest is showing, in PC pixels. May be negative.
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::int32_t w = 0;
+    std::int32_t h = 0;
+    // The size to encode at, which is the resolution ratio the user chose.
+    // Rounded up to a multiple of 4 by the host: block formats need it.
+    std::uint16_t out_w = 0;
+    std::uint16_t out_h = 0;
+    // Upper bound on frames per second. Zero stops the stream without
+    // forgetting the rest of the request.
+    std::uint8_t fps = 0;
+    FrameFormat format = FrameFormat::Off;
+    // Tile edge in pixels, absolute rather than a fraction of the region: a
+    // bigger region should mean more tiles, not bigger ones, or the cost of a
+    // tile stops being predictable. Zero lets the host choose.
+    std::uint8_t tile = 0;
+    std::uint8_t flags = 0; // bit0: draw the cursor into the image
+};
+
+inline constexpr std::uint8_t kViewportCursor = 1u << 0;
+
+// --- 0x21 FRAME_INFO (H->C) ------------------------------------------------
+
+// Opens a batch of tiles. The bytes follow in FRAME_DATA chunks.
+//
+// Only tiles that changed are sent, and only as many per frame as the budget
+// allows, so a batch is a patch and not a picture. Which tiles is the trailing
+// index list, numbered left to right and top to bottom across the encoded
+// surface.
+struct FrameInfo {
+    std::uint32_t seq = 0;
+    // Echoed from the request being served, so a batch that crosses a viewport
+    // change is recognisable as belonging to the old one.
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::int32_t w = 0;
+    std::int32_t h = 0;
+    std::uint16_t out_w = 0;
+    std::uint16_t out_h = 0;
+    FrameFormat format = FrameFormat::Off;
+    std::uint8_t tile = 0;
+    // Size the payload decompresses to, so the guest can size its buffer once.
+    std::uint32_t raw_bytes = 0;
+    std::uint32_t payload_bytes = 0;
+    std::vector<std::uint16_t> tiles;
+};
+
+// --- 0x22 FRAME_DATA (H->C) ------------------------------------------------
+
+// One slice of the payload named by the FRAME_INFO with the same seq.
+//
+// Split small on purpose. A priority queue above the socket cannot help once
+// bytes are in the kernel buffer, so the chunk size is what actually bounds
+// how long a pointer message can be stuck behind a frame: at USB speeds 16 KiB
+// is about 0.65 ms.
+inline constexpr std::size_t kFrameChunkBytes = 16u * 1024u;
+
+struct FrameData {
+    std::uint32_t seq = 0;
+    std::uint32_t offset = 0;
+    std::vector<std::byte> bytes;
+};
+
 // --- 0x23 ACTIVE_WINDOW (H->C) ---------------------------------------------
 
 // Sent whenever the PC's focused window changes, so the guest can bring up the
@@ -184,6 +269,9 @@ std::vector<std::byte> encode(const Pointer& m);
 std::vector<std::byte> encode(const HostState& m);
 std::vector<std::byte> encode(const ActiveWindow& m);
 std::vector<std::byte> encode(const Key& m);
+std::vector<std::byte> encode(const ViewportReq& m);
+std::vector<std::byte> encode(const FrameInfo& m);
+std::vector<std::byte> encode(const FrameData& m);
 std::vector<std::byte> encode(const LogMessage& m);
 
 bool decode(std::span<const std::byte> payload, Hello& out);
@@ -194,6 +282,9 @@ bool decode(std::span<const std::byte> payload, Pointer& out);
 bool decode(std::span<const std::byte> payload, HostState& out);
 bool decode(std::span<const std::byte> payload, ActiveWindow& out);
 bool decode(std::span<const std::byte> payload, Key& out);
+bool decode(std::span<const std::byte> payload, ViewportReq& out);
+bool decode(std::span<const std::byte> payload, FrameInfo& out);
+bool decode(std::span<const std::byte> payload, FrameData& out);
 bool decode(std::span<const std::byte> payload, LogMessage& out);
 
 } // namespace digitiz::proto

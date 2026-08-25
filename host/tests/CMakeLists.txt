@@ -12,9 +12,11 @@ add_executable(digitiz_host_tests
     test_latency_stats.cpp
     test_pointer_pipeline.cpp
     test_spline_smoother.cpp
+    test_tile_scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/PointerPipeline.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/SplineSmoother.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/Win32KeyNames.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/screen/TileScheduler.cpp
 )
 
 target_include_directories(digitiz_host_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)

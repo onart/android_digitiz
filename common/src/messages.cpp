@@ -36,6 +36,20 @@ const char* to_string(MsgType type) noexcept {
     return "UNKNOWN";
 }
 
+const char* to_string(FrameFormat format) noexcept {
+    switch (format) {
+    case FrameFormat::Off:
+        return "OFF";
+    case FrameFormat::Etc2Rgb8:
+        return "ETC2_RGB8";
+    case FrameFormat::Astc4x4:
+        return "ASTC_4x4";
+    case FrameFormat::H264:
+        return "H264";
+    }
+    return "?";
+}
+
 const char* to_string(PointerAction action) noexcept {
     switch (action) {
     case PointerAction::Down:
@@ -238,6 +252,104 @@ bool decode(std::span<const std::byte> payload, ActiveWindow& out) {
     Reader r(payload);
     out.pid = r.u32();
     out.process = r.fixed_str(kProcessNameBytes);
+    return r.done();
+}
+
+// --- ViewportReq -------------------------------------------------------------
+
+std::vector<std::byte> encode(const ViewportReq& m) {
+    MessageBuilder b(MsgType::ViewportReq);
+    b.w().i32(m.x);
+    b.w().i32(m.y);
+    b.w().i32(m.w);
+    b.w().i32(m.h);
+    b.w().u16(m.out_w);
+    b.w().u16(m.out_h);
+    b.w().u8(m.fps);
+    b.w().u8(static_cast<std::uint8_t>(m.format));
+    b.w().u8(m.tile);
+    b.w().u8(m.flags);
+    return b.take();
+}
+
+bool decode(std::span<const std::byte> payload, ViewportReq& out) {
+    Reader r(payload);
+    out.x = r.i32();
+    out.y = r.i32();
+    out.w = r.i32();
+    out.h = r.i32();
+    out.out_w = r.u16();
+    out.out_h = r.u16();
+    out.fps = r.u8();
+    out.format = static_cast<FrameFormat>(r.u8());
+    out.tile = r.u8();
+    out.flags = r.u8();
+    return r.done();
+}
+
+// --- FrameInfo ---------------------------------------------------------------
+
+std::vector<std::byte> encode(const FrameInfo& m) {
+    MessageBuilder b(MsgType::FrameInfo);
+    b.w().u32(m.seq);
+    b.w().i32(m.x);
+    b.w().i32(m.y);
+    b.w().i32(m.w);
+    b.w().i32(m.h);
+    b.w().u16(m.out_w);
+    b.w().u16(m.out_h);
+    b.w().u8(static_cast<std::uint8_t>(m.format));
+    b.w().u8(m.tile);
+    b.w().pad(2);
+    b.w().u32(m.raw_bytes);
+    b.w().u32(m.payload_bytes);
+    for (const std::uint16_t tile : m.tiles) {
+        b.w().u16(tile);
+    }
+    return b.take();
+}
+
+bool decode(std::span<const std::byte> payload, FrameInfo& out) {
+    Reader r(payload);
+    out.seq = r.u32();
+    out.x = r.i32();
+    out.y = r.i32();
+    out.w = r.i32();
+    out.h = r.i32();
+    out.out_w = r.u16();
+    out.out_h = r.u16();
+    out.format = static_cast<FrameFormat>(r.u8());
+    out.tile = r.u8();
+    r.skip(2);
+    out.raw_bytes = r.u32();
+    out.payload_bytes = r.u32();
+
+    // However many indices the rest of the payload holds. A trailing odd byte
+    // means the sender and this reader disagree about the layout, which is
+    // exactly what done() is for.
+    out.tiles.clear();
+    while (r.ok() && r.remaining() >= 2) {
+        out.tiles.push_back(r.u16());
+    }
+    return r.done();
+}
+
+// --- FrameData ---------------------------------------------------------------
+
+std::vector<std::byte> encode(const FrameData& m) {
+    MessageBuilder b(MsgType::FrameData);
+    b.w().u32(m.seq);
+    b.w().u32(m.offset);
+    b.w().bytes(m.bytes);
+    return b.take();
+}
+
+bool decode(std::span<const std::byte> payload, FrameData& out) {
+    Reader r(payload);
+    out.seq = r.u32();
+    out.offset = r.u32();
+    const std::span<const std::byte> rest = r.rest_bytes();
+    out.bytes.assign(rest.begin(), rest.end());
     return r.done();
 }
 

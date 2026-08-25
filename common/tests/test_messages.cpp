@@ -220,3 +220,88 @@ TEST_CASE("decode rejects trailing garbage") {
     Pointer out;
     CHECK_FALSE(decode(payload_of(msg), out));
 }
+
+// --- screen transfer ---------------------------------------------------------
+
+TEST_CASE("ViewportReq round-trips, negative origin included") {
+    const ViewportReq in{.x = -1920,
+                         .y = -40,
+                         .w = 1280,
+                         .h = 720,
+                         .out_w = 640,
+                         .out_h = 360,
+                         .fps = 30,
+                         .format = FrameFormat::Etc2Rgb8,
+                         .tile = 64,
+                         .flags = kViewportCursor};
+
+    ViewportReq out;
+    REQUIRE(decode(payload_of(encode(in)), out));
+    CHECK(out.x == -1920);
+    CHECK(out.y == -40);
+    CHECK(out.w == 1280);
+    CHECK(out.out_h == 360);
+    CHECK(out.fps == 30);
+    CHECK(out.format == FrameFormat::Etc2Rgb8);
+    CHECK(out.tile == 64);
+    CHECK((out.flags & kViewportCursor) != 0);
+}
+
+TEST_CASE("a stopped stream is still a request, not an absence of one") {
+    ViewportReq out;
+    REQUIRE(decode(payload_of(encode(ViewportReq{.w = 800, .h = 600, .fps = 0})), out));
+    CHECK(out.fps == 0);
+    CHECK(out.w == 800);
+}
+
+TEST_CASE("FrameInfo carries its tile list") {
+    FrameInfo in;
+    in.seq = 7;
+    in.x = 100;
+    in.y = 200;
+    in.w = 640;
+    in.h = 480;
+    in.out_w = 640;
+    in.out_h = 480;
+    in.format = FrameFormat::Etc2Rgb8;
+    in.tile = 64;
+    in.raw_bytes = 8192;
+    in.payload_bytes = 1234;
+    in.tiles = {0, 5, 9, 60000};
+
+    FrameInfo out;
+    REQUIRE(decode(payload_of(encode(in)), out));
+    CHECK(out.seq == 7);
+    CHECK(out.tile == 64);
+    CHECK(out.raw_bytes == 8192);
+    CHECK(out.payload_bytes == 1234);
+    CHECK(out.tiles == std::vector<std::uint16_t>{0, 5, 9, 60000});
+}
+
+TEST_CASE("a FrameInfo with no tiles is legal and means nothing changed") {
+    FrameInfo out;
+    REQUIRE(decode(payload_of(encode(FrameInfo{})), out));
+    CHECK(out.tiles.empty());
+}
+
+TEST_CASE("FrameData carries its slice and where it belongs") {
+    FrameData in;
+    in.seq = 9;
+    in.offset = 16384;
+    in.bytes = {std::byte{1}, std::byte{2}, std::byte{0xFF}};
+
+    FrameData out;
+    REQUIRE(decode(payload_of(encode(in)), out));
+    CHECK(out.seq == 9);
+    CHECK(out.offset == 16384);
+    REQUIRE(out.bytes.size() == 3);
+    CHECK(out.bytes[2] == std::byte{0xFF});
+}
+
+TEST_CASE("an odd trailing byte in FrameInfo is a disagreement, not a tile") {
+    auto msg = encode(FrameInfo{});
+    msg.push_back(std::byte{0x01});
+
+    FrameInfo out;
+    CHECK_FALSE(decode(payload_of(msg), out));
+}

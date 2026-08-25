@@ -46,9 +46,9 @@ TCP(및 하위 USB)가 무결성을 보장하므로 실제 손상은 드물다. 
 | `0x04` | `PONG` | 양방향 | M1 |
 | `0x10` | `POINTER` | C→H | M1 |
 | `0x11` | `HOST_STATE` | H→C | M1 |
-| `0x20` | `VIEWPORT_REQ` | C→H | M2 (예약) |
-| `0x21` | `FRAME_INFO` | H→C | M2 (예약) |
-| `0x22` | `FRAME_DATA` | H→C | M2 (예약) |
+| `0x20` | `VIEWPORT_REQ` | C→H | M2 |
+| `0x21` | `FRAME_INFO` | H→C | M2 |
+| `0x22` | `FRAME_DATA` | H→C | M2 |
 | `0x23` | `ACTIVE_WINDOW` | H→C | M2 |
 | `0x24` | `KEY` | C→H | M2 |
 | `0x25` | `WHEEL` | C→H | M2 (예약) |
@@ -193,6 +193,63 @@ PC의 포커스가 다른 프로그램으로 옮겨갈 때마다 전송. 게스�
 거쳐 가는데(작업 표시줄이 실제로 0.1초쯤 포커스를 가져간다) 그대로 흘리면
 전환할 때마다 프리셋이 기본값으로 떨어졌다 돌아온다. 정착 대기는 200 ms.
 
+### `0x20 VIEWPORT_REQ` (C→H)
+
+```c
+struct ViewportReq {      // 24 bytes
+    int32_t  x, y, w, h;  // 보고 싶은 데스크톱 영역 (PC px, 음수 가능)
+    uint16_t out_w, out_h;// 인코딩 크기 = 사용자가 고른 해상도 비율
+    uint8_t  fps;         // 상한. 0이면 전송 중지(요청 자체는 유지)
+    uint8_t  format;      // 0=OFF 1=ETC2_RGB8 2=ASTC_4x4 3=H264
+    uint8_t  tile;        // 타일 한 변(px). 0이면 호스트가 정함
+    uint8_t  flags;       // bit0: 커서 포함
+};
+```
+
+연결 시와 뷰·설정이 바뀔 때마다 보낸다. 호스트는 마지막 것을 들고 있다가
+다음 요청이 올 때까지 그걸로 서빙한다.
+
+`out_w`/`out_h` 는 호스트가 **4의 배수로 올림**한다. 블록 포맷이 그걸 요구한다.
+
+**타일 크기는 절대크기다.** 영역이 커지면 타일이 커지는 게 아니라 타일
+**개수**가 늘어야 타일 하나의 비용이 예측 가능해진다.
+
+### `0x21 FRAME_INFO` (H→C)
+
+```c
+struct FrameInfo {        // 36 bytes + 타일 인덱스 목록
+    uint32_t seq;
+    int32_t  x, y, w, h;  // 서빙 중인 요청을 그대로 되울린 것
+    uint16_t out_w, out_h;
+    uint8_t  format;
+    uint8_t  tile;
+    uint8_t  pad[2];
+    uint32_t raw_bytes;     // 압축을 푼 크기
+    uint32_t payload_bytes; // 뒤따르는 FRAME_DATA 총 바이트
+    // uint16_t tiles[];    // 남은 페이로드 전부. 좌→우, 상→하 번호
+};
+```
+
+타일 묶음 하나를 연다. **바뀐 타일만, 그것도 예산만큼만** 나가므로 한 묶음은
+그림이 아니라 **패치**다. 어느 타일인지는 뒤에 붙는 인덱스 목록이다.
+
+`x,y,w,h` 를 되울리는 이유는, 뷰포트가 바뀌는 순간에 걸친 묶음이 **옛 요청의
+것임을 알아볼 수 있게** 하기 위해서다.
+
+### `0x22 FRAME_DATA` (H→C)
+
+```c
+struct FrameData {
+    uint32_t seq;         // 같은 seq의 FRAME_INFO에 속한다
+    uint32_t offset;      // 페이로드 안에서의 바이트 위치
+    // uint8_t bytes[];
+};
+```
+
+**작게 쪼개는 게 핵심이다.** 소켓 위에 우선순위 큐를 둬도 **커널 버퍼에 들어간
+바이트는 이미 늦었다.** 그래서 포인터 메시지가 프레임 뒤에 갇히는 최악 시간을
+실제로 정하는 건 청크 크기다 — USB 속도에서 **16 KiB면 약 0.65 ms**.
+
 ### `0x24 KEY` (C→H)
 
 ```c
@@ -239,19 +296,6 @@ struct LogMsg {
 확정 아님. 번호만 선점하고 필드는 M2에서 결정한다.
 
 ```c
-// 0x20 VIEWPORT_REQ (C→H) — 게스트가 보고 싶은 PC 영역과 출력 해상도
-struct ViewportReq {
-    int32_t  x, y, w, h;     // 요청 영역 (PC px)
-    uint16_t out_w, out_h;   // 인코딩 해상도 (해상도 비율은 사용자 옵션)
-    uint8_t  fps;            // 폴링 레이트
-    uint8_t  codec;          // 0=RAW_BGRA 1=JPEG 2=H264
-    uint8_t  quality;
-    uint8_t  flags;          // bit0: 커서 포함
-};
-
-// 0x21 FRAME_INFO (H→C) — 프레임 메타. 뒤이어 FRAME_DATA 청크가 온다
-// 0x22 FRAME_DATA (H→C) — {u32 seq; u32 offset; bytes} 로 16 KiB 이하 분할
-
 // 0x25 WHEEL (C→H)
 // 0x26 SMOOTHING (C→H) — CR 스플라인 보정 파라미터
 ```
