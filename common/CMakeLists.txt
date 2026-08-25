@@ -6,6 +6,7 @@
 add_library(digitiz_common STATIC
     src/log.cpp
     src/messages.cpp
+    src/tiling.cpp
 )
 
 target_include_directories(digitiz_common PUBLIC include)

@@ -15,7 +15,6 @@ add_executable(digitiz_host_tests
     test_send_queue.cpp
     test_spline_smoother.cpp
     test_tile_payload.cpp
-    test_viewport_geometry.cpp
     test_tile_scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/PointerPipeline.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/SplineSmoother.cpp
@@ -23,7 +22,6 @@ add_executable(digitiz_host_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/screen/Etc2.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/transport/SendQueue.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/screen/TileScheduler.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/screen/ViewportGeometry.cpp
 )
 
 target_include_directories(digitiz_host_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)

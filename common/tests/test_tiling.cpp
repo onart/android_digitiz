@@ -1,8 +1,8 @@
 #include <doctest/doctest.h>
 
-#include "screen/ViewportGeometry.hpp"
+#include <digitiz/proto/tiling.hpp>
 
-using namespace digitiz::host;
+using namespace digitiz::proto;
 using digitiz::core::Recti;
 
 TEST_CASE("a request is rounded into something a block encoder can take") {

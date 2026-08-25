@@ -1,9 +1,9 @@
-#include "screen/ViewportGeometry.hpp"
+#include <digitiz/proto/tiling.hpp>
 
 #include <algorithm>
 #include <cmath>
 
-namespace digitiz::host {
+namespace digitiz::proto {
 
 namespace {
 
@@ -107,4 +107,4 @@ ViewportGeometry make_geometry(core::Recti region, int out_w, int out_h, int til
     return g;
 }
 
-} // namespace digitiz::host
+} // namespace digitiz::proto

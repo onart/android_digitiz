@@ -24,19 +24,15 @@
 #include <cstdint>
 #include <vector>
 
+#include <digitiz/proto/tiling.hpp>
+
 namespace digitiz::host {
 
-inline constexpr int kEtc2BlockSize = 4;
-inline constexpr std::size_t kEtc2BlockBytes = 8;
-
-// Bytes a w*h image takes once encoded. Both must be multiples of 4.
-constexpr std::size_t etc2_size(int w, int h) noexcept {
-    if (w <= 0 || h <= 0) {
-        return 0;
-    }
-    return static_cast<std::size_t>(w / kEtc2BlockSize) *
-           static_cast<std::size_t>(h / kEtc2BlockSize) * kEtc2BlockBytes;
-}
+// The block size and the size arithmetic are shared with the guest, which has
+// to walk the same payload; see digitiz/proto/tiling.hpp.
+using proto::etc2_size;
+using proto::kEtc2BlockBytes;
+using proto::kEtc2BlockSize;
 
 // `bgra` is what the capture hands over: four bytes per pixel, blue first,
 // alpha ignored. `stride` is bytes per row. Width and height must be multiples

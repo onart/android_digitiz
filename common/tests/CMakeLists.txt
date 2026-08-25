@@ -12,6 +12,7 @@ add_executable(digitiz_common_tests
     test_messages.cpp
     test_framer.cpp
     test_geometry.cpp
+    test_tiling.cpp
 )
 
 target_link_libraries(digitiz_common_tests PRIVATE digitiz::common doctest::doctest)
