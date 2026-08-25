@@ -17,6 +17,7 @@ constexpr const char* kMinDistanceKey = "min_distance_dp";
 constexpr const char* kStripVerticalKey = "strip_vertical";
 constexpr const char* kStripExpandedKey = "strip_expanded";
 constexpr const char* kStripSlotsKey = "strip_slots";
+constexpr const char* kScreenKey = "screen";
 
 std::string trim(std::string s) {
     const auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
@@ -69,6 +70,8 @@ void Settings::load(const char* external_dir) {
             strip_expanded_ = value != "0";
         } else if (key == kStripSlotsKey) {
             strip_slots_ = std::atoi(value.c_str());
+        } else if (key == kScreenKey) {
+            screen_enabled_ = value != "0";
         }
     }
 
@@ -103,6 +106,15 @@ void Settings::set_strip_slots(int slots) {
     save();
 }
 
+void Settings::set_screen_enabled(bool on) {
+    if (screen_enabled_ == on) {
+        return;
+    }
+    screen_enabled_ = on;
+    save();
+    DZ_INFO("screen transfer %s", on ? "enabled" : "disabled");
+}
+
 void Settings::set_auto_launch(bool on) {
     if (auto_launch_ == on) {
         return;
@@ -131,6 +143,7 @@ void Settings::save() const {
     out << kStripVerticalKey << "=" << (strip_vertical_ ? 1 : 0) << "\n";
     out << kStripExpandedKey << "=" << (strip_expanded_ ? 1 : 0) << "\n";
     out << kStripSlotsKey << "=" << strip_slots_ << "\n";
+    out << kScreenKey << "=" << (screen_enabled_ ? 1 : 0) << "\n";
 }
 
 } // namespace digitiz::guest

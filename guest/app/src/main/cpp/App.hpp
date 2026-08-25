@@ -20,7 +20,9 @@
 #include "net/TcpTransport.hpp"
 #include "render/GlContext.hpp"
 #include "render/GridRenderer.hpp"
+#include "render/ScreenRenderer.hpp"
 #include "render/UiRenderer.hpp"
+#include "screen/FrameReceiver.hpp"
 #include "text/TextRenderer.hpp"
 #include "ui/ButtonStrip.hpp"
 #include "ui/Minimap.hpp"
@@ -74,6 +76,12 @@ private:
     // refreshes the caption either way.
     void refresh_preset_offer();
     std::string preset_display_name(int index) const;
+    // Decides what region of the PC to ask for and when to say so. Runs every
+    // frame; sends far less often than that.
+    void update_stream();
+    proto::ViewportReq wanted_viewport(core::Recti desktop) const;
+    void stop_stream();
+
     void send_button_pointer(proto::PointerAction action, core::Vec2 pc);
     void send_button_shortcut(const CustomButton& button);
     bool pc_point_on_screen(core::Vec2 pc) const;
@@ -82,6 +90,7 @@ private:
     android_app* app_;
     GlContext gl_;
     GridRenderer grid_;
+    ScreenRenderer screen_;
     UiRenderer ui_;
     TextRenderer text_;
     SideMenu menu_;
@@ -90,6 +99,7 @@ private:
     Minimap minimap_;
     TcpTransport link_;
     Settings settings_;
+    FrameReceiver frames_;
 
     core::ViewTransform view_;
     TouchRouter router_;
@@ -98,6 +108,26 @@ private:
     // to whoever claimed the press, so this only has to survive between them.
     enum class UiOwner : std::uint8_t { None, Menu, Strip };
     UiOwner ui_owner_ = UiOwner::None;
+
+    // Whether the user wants the PC's screen here. Off by default; it is the
+    // one thing in the drawer that costs bandwidth the pointer also needs.
+    bool screen_enabled_ = false;
+    // What the view says we should be asking for, and what the host has
+    // actually been told. They differ while a pinch or a pan is still moving:
+    // every change makes the host throw away every tile the guest holds, so
+    // the request waits for the view to settle -- the same reason and the same
+    // prescription as the host's active-window delay.
+    //
+    // A default-constructed request is "send nothing", which is also what a
+    // host that has never heard from us is doing. So `sent_viewport_` needs no
+    // companion flag saying whether anything was sent.
+    proto::ViewportReq wanted_viewport_{};
+    proto::ViewportReq sent_viewport_{};
+    std::chrono::steady_clock::time_point wanted_since_{};
+    // Reused every frame rather than reallocated.
+    std::vector<FrameBatch> batches_;
+    bool image_logged_ = false;
+    std::uint64_t bad_batches_logged_ = 0;
 
     bool has_focus_ = false;
     bool renderers_ready_ = false;

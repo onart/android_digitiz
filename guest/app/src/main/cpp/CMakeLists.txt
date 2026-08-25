@@ -32,8 +32,10 @@ add_library(digitiz_guest SHARED
     platform/ActivityBridge.cpp
     render/GlContext.cpp
     render/GridRenderer.cpp
+    render/ScreenRenderer.cpp
     render/Shader.cpp
     render/UiRenderer.cpp
+    screen/FrameReceiver.cpp
     text/TextRenderer.cpp
     ui/ButtonStrip.cpp
     ui/Minimap.cpp

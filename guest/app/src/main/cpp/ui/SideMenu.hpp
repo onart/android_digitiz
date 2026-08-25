@@ -61,6 +61,13 @@ public:
     bool strip_vertical() const noexcept { return strip_vertical_; }
     bool take_strip_change() noexcept;
 
+    // Whether to ask the host for its screen. A header button rather than a
+    // row: the rows below already reach the bottom of a short screen, and this
+    // is one bit with a picture that says it.
+    void set_screen_enabled(bool on) noexcept { screen_enabled_ = on; }
+    bool screen_enabled() const noexcept { return screen_enabled_; }
+    bool take_screen_change() noexcept;
+
     // Pointer decimation while drawing, in milliseconds and dp.
     void set_throttle(int interval_ms, float distance_dp) noexcept;
     int min_interval_ms() const noexcept { return min_interval_ms_; }
@@ -85,6 +92,7 @@ private:
     Rect auto_launch_switch() const;
     Rect rotate_button() const;
     Rect strip_button() const;
+    Rect screen_button() const;
 
     // 0 = min interval, 1 = min distance, 2 = strip length. Three sliders of
     // the same shape, so they share their geometry and their drag handling.
@@ -100,6 +108,7 @@ private:
     void draw_auto_launch_row(UiRenderer& ui, float alpha) const;
     void draw_rotate_button(UiRenderer& ui, float alpha) const;
     void draw_strip_button(UiRenderer& ui, float alpha) const;
+    void draw_screen_button(UiRenderer& ui, float alpha) const;
 
     int surface_w_ = 0;
     int surface_h_ = 0;
@@ -123,6 +132,9 @@ private:
 
     bool strip_vertical_ = false;
     bool strip_changed_ = false;
+
+    bool screen_enabled_ = false;
+    bool screen_changed_ = false;
 
     int min_interval_ms_ = 0;
     float min_distance_dp_ = 0.0f;

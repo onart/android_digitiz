@@ -64,6 +64,12 @@ bool SideMenu::take_strip_change() noexcept {
     return changed;
 }
 
+bool SideMenu::take_screen_change() noexcept {
+    const bool changed = screen_changed_;
+    screen_changed_ = false;
+    return changed;
+}
+
 bool SideMenu::take_rotate_request() noexcept {
     const bool asked = rotate_requested_;
     rotate_requested_ = false;
@@ -182,7 +188,7 @@ Rect SideMenu::panel_rect() const {
 Rect SideMenu::rotate_button() const {
     const Rect panel = panel_rect();
     const float pad = 16.0f * density_;
-    const float w = 96.0f * density_;
+    const float w = 92.0f * density_;
     const float h = 34.0f * density_;
     return Rect{panel.x + panel.w - pad - w, 12.0f * density_, w, h};
 }
@@ -193,7 +199,16 @@ Rect SideMenu::rotate_button() const {
 Rect SideMenu::strip_button() const {
     const Rect rotate = rotate_button();
     const float w = 42.0f * density_;
-    return Rect{rotate.x - 8.0f * density_ - w, rotate.y, w, rotate.h};
+    return Rect{rotate.x - 6.0f * density_ - w, rotate.y, w, rotate.h};
+}
+
+// Third in the header, for the same reason as the second. Between them and the
+// rotate button they leave about 80dp for the title, which is what the header
+// can spare -- the rows below cannot spare a row.
+Rect SideMenu::screen_button() const {
+    const Rect strip = strip_button();
+    const float w = 42.0f * density_;
+    return Rect{strip.x - 6.0f * density_ - w, strip.y, w, strip.h};
 }
 
 Rect SideMenu::mode_row() const {
@@ -247,6 +262,9 @@ bool SideMenu::hit_test(core::Vec2 p) {
             } else if (strip_button().contains(p)) {
                 strip_vertical_ = !strip_vertical_;
                 strip_changed_ = true;
+            } else if (screen_button().contains(p)) {
+                screen_enabled_ = !screen_enabled_;
+                screen_changed_ = true;
             } else if (mode_row().contains(p)) {
                 // Few enough modes that cycling beats a picker.
                 mode_ = next_mode(mode_);
@@ -418,6 +436,36 @@ void SideMenu::draw_strip_button(UiRenderer& ui, float alpha) const {
     ui.rounded_rect(bar, 3.0f * density_, Color{kAccent.r, kAccent.g, kAccent.b, alpha});
 }
 
+// A monitor. Lit when the PC's screen is being asked for, dark when it is
+// not -- and the picture on the surface behind is the other half of that
+// answer, so the two cannot disagree for long.
+void SideMenu::draw_screen_button(UiRenderer& ui, float alpha) const {
+    const Rect button = screen_button();
+    ui.rounded_rect(button, 10.0f * density_, Color{0.22f, 0.24f, 0.29f, 0.95f * alpha});
+
+    const Color ink = screen_enabled_ ? Color{kAccent.r, kAccent.g, kAccent.b, alpha}
+                                      : Color{kIdleGlyph.r, kIdleGlyph.g, kIdleGlyph.b, alpha};
+
+    const float w = 24.0f * density_;
+    const float h = 16.0f * density_;
+    const float cx = button.x + button.w * 0.5f;
+    const float cy = button.y + button.h * 0.5f;
+
+    const Rect frame{cx - w * 0.5f, cy - h * 0.5f - 2.0f * density_, w, h};
+    if (screen_enabled_) {
+        ui.rounded_rect(frame, 3.0f * density_, ink);
+    } else {
+        ui.rounded_rect_outline(frame, 3.0f * density_, 1.5f * density_, ink);
+    }
+
+    // Stand, so a filled rectangle still reads as a screen rather than a box.
+    const float stand_w = 10.0f * density_;
+    const float stand_h = 2.5f * density_;
+    ui.rounded_rect(Rect{cx - stand_w * 0.5f, frame.y + frame.h + 2.0f * density_, stand_w,
+                         stand_h},
+                    stand_h * 0.5f, ink);
+}
+
 void SideMenu::drag(core::Vec2 p) {
     if (dragging_slider_ >= 0) {
         // Tracked by x only: the finger wandering off the track vertically
@@ -530,6 +578,7 @@ void SideMenu::draw(UiRenderer& ui) const {
 
         draw_rotate_button(ui, progress_);
         draw_strip_button(ui, progress_);
+        draw_screen_button(ui, progress_);
         draw_mode_row(ui, progress_);
         draw_auto_launch_row(ui, progress_);
         for (int i = 0; i < kSliderCount; ++i) {

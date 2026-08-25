@@ -44,6 +44,12 @@ public:
     int strip_slots() const noexcept { return strip_slots_; }
     void set_strip_slots(int slots);
 
+    // Whether to ask the host for its screen. Off by default: it is the one
+    // setting here that costs bandwidth on a link the pointer also uses, so
+    // the user turns it on rather than discovering it is already on.
+    bool screen_enabled() const noexcept { return screen_enabled_; }
+    void set_screen_enabled(bool on);
+
     const std::string& path() const noexcept { return path_; }
 
 private:
@@ -56,6 +62,7 @@ private:
     bool strip_vertical_ = false;
     bool strip_expanded_ = false;
     int strip_slots_ = 0;
+    bool screen_enabled_ = false;
 };
 
 } // namespace digitiz::guest
