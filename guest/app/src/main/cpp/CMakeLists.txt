@@ -15,6 +15,11 @@ add_subdirectory(
     ${CMAKE_CURRENT_BINARY_DIR}/digitiz_common
 )
 
+# The same zstd the host compresses with. Both ends read one tag out of one
+# file, because a format mismatch between the two would be a decode failure
+# with nothing on screen to explain it.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../../../cmake/Zstd.cmake)
+
 find_package(game-activity REQUIRED CONFIG)
 
 add_library(digitiz_guest SHARED
@@ -50,6 +55,7 @@ target_link_libraries(digitiz_guest
         game-activity::game-activity_static
         -Wl,--no-whole-archive
         digitiz::common
+        zstd::libzstd_static
         android
         log
         EGL

@@ -1,5 +1,7 @@
 include(FetchContent)
 
+include(${CMAKE_SOURCE_DIR}/cmake/Zstd.cmake)
+
 find_package(OpenGL REQUIRED)
 
 set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
@@ -69,7 +71,8 @@ add_library(digitiz_host_lib STATIC
 )
 
 target_include_directories(digitiz_host_lib PUBLIC src)
-target_link_libraries(digitiz_host_lib PUBLIC digitiz::common digitiz_imgui)
+target_link_libraries(digitiz_host_lib PUBLIC digitiz::common digitiz_imgui
+                      zstd::libzstd_static)
 
 if(WIN32)
     # Shcore: GetDpiForMonitor.  ws2_32: sockets.  Dwmapi: the visible window

@@ -14,6 +14,7 @@ add_executable(digitiz_host_tests
     test_pointer_pipeline.cpp
     test_send_queue.cpp
     test_spline_smoother.cpp
+    test_tile_payload.cpp
     test_tile_scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/PointerPipeline.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/input/SplineSmoother.cpp
@@ -24,6 +25,7 @@ add_executable(digitiz_host_tests
 )
 
 target_include_directories(digitiz_host_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
-target_link_libraries(digitiz_host_tests PRIVATE digitiz::common doctest::doctest)
+target_link_libraries(digitiz_host_tests PRIVATE digitiz::common doctest::doctest
+                      zstd::libzstd_static)
 
 add_test(NAME host COMMAND digitiz_host_tests)
