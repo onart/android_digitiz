@@ -61,8 +61,11 @@ add_library(digitiz_host_lib STATIC
     src/platform/Win32Process.cpp
     src/screen/CaptureProbe.cpp
     src/screen/Etc2.cpp
+    src/screen/FrameProbe.cpp
+    src/screen/FrameSender.cpp
     src/screen/Etc2Conformance.cpp
     src/screen/TileScheduler.cpp
+    src/screen/ViewportGeometry.cpp
     src/screen/Win32DxgiFrameSource.cpp
     src/transport/AdbClient.cpp
     src/transport/AdbTransport.cpp

@@ -19,6 +19,7 @@
 #include "input/InputInjector.hpp"
 #include "input/PointerPipeline.hpp"
 #include "platform/ForegroundWatcher.hpp"
+#include "screen/FrameSender.hpp"
 #include "transport/AdbTransport.hpp"
 #include "ui/LogStore.hpp"
 
@@ -61,6 +62,7 @@ private:
     void draw_status_panel();
     void draw_connection_panel();
     void draw_smoothing_panel();
+    void draw_screen_panel();
     void draw_selftest_panel();
     void draw_log_panel();
 
@@ -87,6 +89,7 @@ private:
     std::unique_ptr<PointerPipeline> pipeline_;
     std::unique_ptr<AdbTransport> transport_;
     std::unique_ptr<IForegroundWatcher> foreground_;
+    FrameSender frames_;
 
     // Pointer messages are injected straight off the transport thread — an
     // extra hop would add latency to the one path where it is most visible.
@@ -100,6 +103,11 @@ private:
     bool hello_ack_pending_ = false;
     double rtt_ms_ = -1.0;
     int unanswered_pings_ = 0;
+
+    // Left by the transport thread, applied on the UI thread, because the
+    // capture belongs to the UI thread and nothing else may touch it.
+    proto::ViewportReq pending_viewport_;
+    bool viewport_pending_ = false;
 
     // Guest timestamps are on the phone's monotonic clock, which shares no
     // epoch with ours, so they have to be translated before they mean anything.

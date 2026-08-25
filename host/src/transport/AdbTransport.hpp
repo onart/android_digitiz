@@ -37,6 +37,7 @@ public:
     // concrete type, so it is this declaration the callers see.
     bool send(std::span<const std::byte> bytes,
               SendPriority priority = SendPriority::Interactive) override;
+    bool bulk_idle() const override;
     TransportStatus status() const override;
     void drop_session() override;
 

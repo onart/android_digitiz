@@ -30,4 +30,5 @@ imgui.ini
 
 # Written by the host running with --capture-test.
 capture_probe.bmp
+frame_probe.bmp
 probe*.log

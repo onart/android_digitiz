@@ -460,6 +460,11 @@ void AdbTransport::send_loop() {
     }
 }
 
+bool AdbTransport::bulk_idle() const {
+    std::lock_guard lock(send_mutex_);
+    return queue_.bulk_idle();
+}
+
 TransportStatus AdbTransport::status() const {
     TransportStatus out;
     {

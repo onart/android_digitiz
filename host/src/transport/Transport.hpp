@@ -85,6 +85,11 @@ public:
     // transfer was interactive and none of it should have to say so.
     virtual bool send(std::span<const std::byte> bytes,
                       SendPriority priority = SendPriority::Interactive) = 0;
+
+    // True when no bulk data is queued or in flight, which is when the next
+    // frame may be handed over. Holding to one frame at a time is what keeps a
+    // slow link producing fewer frames instead of a backlog of stale ones.
+    virtual bool bulk_idle() const = 0;
     virtual TransportStatus status() const = 0;
 
     // Ends the current session without stopping the transport; it will go back

@@ -70,6 +70,13 @@ bool HostApp::init() {
     pipeline_->set_window_bounds([this](core::Recti& out) {
         return foreground_ && foreground_->focused_window_bounds(out);
     });
+    frames_.set_sink(
+        [this](std::vector<std::byte> message) {
+            if (transport_) {
+                transport_->send(message, SendPriority::Bulk);
+            }
+        },
+        [this] { return transport_ && transport_->bulk_idle(); });
 
     refresh_layout(true);
     DZ_INFO("host ready");
@@ -90,6 +97,21 @@ void HostApp::tick() {
     refresh_layout(false);
     poll_foreground();
     pump_session();
+
+    bool apply_viewport = false;
+    proto::ViewportReq request;
+    {
+        std::lock_guard lock(session_mutex_);
+        if (viewport_pending_) {
+            viewport_pending_ = false;
+            request = pending_viewport_;
+            apply_viewport = true;
+        }
+    }
+    if (apply_viewport) {
+        frames_.set_viewport(request);
+    }
+    frames_.tick();
 }
 
 void HostApp::shutdown() {
@@ -129,6 +151,8 @@ void HostApp::on_transport_connect() {
 
 void HostApp::on_transport_disconnect() {
     session_active_ = false;
+    // The next guest has seen nothing of the screen, so it is owed all of it.
+    frames_.stop();
     {
         // A dropped cable mid-stroke must not leave the button held.
         std::lock_guard lock(pipeline_mutex_);
@@ -141,6 +165,22 @@ void HostApp::on_transport_disconnect() {
 
 void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byte> payload) {
     switch (type) {
+    case proto::MsgType::ViewportReq: {
+        proto::ViewportReq request;
+        if (!proto::decode(payload, request)) {
+            DZ_WARN("malformed VIEWPORT_REQ payload (%zu bytes)", payload.size());
+            return;
+        }
+        {
+            // Left here for the UI thread: the capture belongs to it, and the
+            // transport thread has no business starting a Direct3D device.
+            std::lock_guard lock(session_mutex_);
+            pending_viewport_ = request;
+            viewport_pending_ = true;
+        }
+        break;
+    }
+
     case proto::MsgType::Key: {
         proto::Key key;
         if (!proto::decode(payload, key)) {
@@ -703,9 +743,49 @@ void HostApp::draw_status_panel() {
 
     draw_smoothing_panel();
 
+    draw_screen_panel();
+
     draw_selftest_panel();
 
     ImGui::End();
+}
+
+void HostApp::draw_screen_panel() {
+    if (!ImGui::CollapsingHeader("Screen transfer", ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+
+    if (!frames_.streaming()) {
+        ImGui::TextDisabled("Not streaming. The guest asks for a region when it wants one.");
+        return;
+    }
+
+    const ViewportGeometry& g = frames_.geometry();
+    const FrameSender::Stats& s = frames_.stats();
+    ImGui::Text("%dx%d at (%d, %d) -> %dx%d", g.region.w, g.region.h, g.region.x, g.region.y,
+                g.out_w, g.out_h);
+    ImGui::Text("%d px tiles: %d total, %d dirty, %d per batch", g.tile, g.tile_count(),
+                frames_.dirty_tiles(), frames_.budget_tiles());
+    ImGui::Text("%llu batch(es), %llu tile(s), %.1f KiB sent from %.1f KiB of blocks",
+                static_cast<unsigned long long>(s.frames),
+                static_cast<unsigned long long>(s.tiles), s.bytes / 1024.0,
+                s.raw_bytes / 1024.0);
+    if (s.bytes > 0) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%.1fx)", static_cast<double>(s.raw_bytes) / s.bytes);
+    }
+    ImGui::Text("encode %.1f ms   skipped while busy %llu   captures %llu", s.last_encode_ms,
+                static_cast<unsigned long long>(s.skipped_busy),
+                static_cast<unsigned long long>(s.captures));
+
+    int budget = frames_.budget_bytes() / 1024;
+    if (ImGui::SliderInt("Batch budget (KiB)", &budget, 16, 2048)) {
+        frames_.set_budget_bytes(budget * 1024);
+    }
+    ImGui::SetItemTooltip(
+        "Uncompressed block bytes one batch may spend. The cap is on the uncompressed size "
+        "because that is what is known before anything is compressed.\n"
+        "Raising it converges faster and leaves less room for input.");
 }
 
 void HostApp::draw_smoothing_panel() {
