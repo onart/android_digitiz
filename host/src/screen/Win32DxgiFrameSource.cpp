@@ -89,6 +89,23 @@ public:
             return false;
         }
 
+        // Take our own copy immediately, on the GPU, and read from that
+        // instead. An acquired frame is only readable while it is held, and a
+        // still screen never delivers another one -- so anything not read
+        // during the tick it arrived on used to be unreadable until the
+        // desktop happened to move again. With a copy of our own the pixels
+        // are there whenever they are wanted.
+        //
+        // It is also the surface a compute encoder will read: the point of
+        // this is eventually to compress here and carry blocks across the bus
+        // rather than pixels.
+        if (!ensure_desktop()) {
+            release_frame();
+            return false;
+        }
+        context_->CopyResource(desktop_.Get(), frame_texture_.Get());
+        desktop_valid_ = true;
+
         if (!read_metadata(info, out)) {
             // No metadata is not a failure, it just means nothing was said.
             out.full = true;
@@ -103,7 +120,8 @@ public:
     }
 
     bool read(core::Recti rect, std::vector<std::uint8_t>& out, int& stride) override {
-        if (!frame_texture_ || !context_) {
+        // Deliberately not tied to holding a frame; see the copy in next().
+        if (!desktop_valid_ || !desktop_ || !context_) {
             return false;
         }
 
@@ -130,7 +148,7 @@ public:
         box.bottom = box.top + h;
         box.front = 0;
         box.back = 1;
-        context_->CopySubresourceRegion(staging_.Get(), 0, 0, 0, 0, frame_texture_.Get(), 0, &box);
+        context_->CopySubresourceRegion(staging_.Get(), 0, 0, 0, 0, desktop_.Get(), 0, &box);
 
         D3D11_MAPPED_SUBRESOURCE mapped{};
         if (FAILED(context_->Map(staging_.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
@@ -263,6 +281,26 @@ private:
         return true;
     }
 
+    // Matches whatever the duplication hands over, so CopyResource is always
+    // legal. Bound as a shader resource because that is what the compute
+    // encoder will need, and it costs nothing to ask for now.
+    bool ensure_desktop() {
+        if (desktop_) {
+            return true;
+        }
+        D3D11_TEXTURE2D_DESC desc{};
+        frame_texture_->GetDesc(&desc);
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        desc.CPUAccessFlags = 0;
+        desc.MiscFlags = 0;
+        if (FAILED(device_->CreateTexture2D(&desc, nullptr, &desktop_))) {
+            DZ_ERROR("capture: could not create the desktop copy");
+            return false;
+        }
+        return true;
+    }
+
     bool ensure_staging(UINT w, UINT h) {
         if (staging_ && staging_w_ >= w && staging_h_ >= h) {
             return true;
@@ -292,6 +330,9 @@ private:
     ComPtr<IDXGIOutput1> output_;
     ComPtr<IDXGIOutputDuplication> duplication_;
     ComPtr<ID3D11Texture2D> frame_texture_;
+    // Ours, refreshed on every acquire, readable at any time.
+    ComPtr<ID3D11Texture2D> desktop_;
+    bool desktop_valid_ = false;
     ComPtr<ID3D11Texture2D> staging_;
     UINT staging_w_ = 0;
     UINT staging_h_ = 0;

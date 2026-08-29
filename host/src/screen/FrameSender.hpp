@@ -106,6 +106,9 @@ private:
     // time its pixels can be read.
     bool capture();
     void send_batch();
+    // Reads the pixels the selected tiles are cut from -- their bounding box,
+    // not the whole region. Sets `read_rect_` to what was actually read.
+    bool read_selection();
     // The tile the pen is on, or -1: not touching, not streaming, or touching
     // somewhere outside the region the guest asked for.
     int pen_tile() const noexcept;
@@ -125,22 +128,20 @@ private:
     // rather than on how fast the rest catches up, which is the right way
     // round for drawing; raise it when the whole picture matters more.
     int budget_tiles_ = 1;
-    // Dirt has been marked that the pixel buffer does not yet contain. Until
-    // it clears, nothing may be sent from that buffer -- sending stale pixels
-    // and marking the tile clean would leave it wrong for good.
-    bool pixels_stale_ = true;
     bool pen_down_ = false;
     int logged_pen_ = -1;
     std::int32_t pen_x_ = 0;
     std::int32_t pen_y_ = 0;
     std::chrono::steady_clock::time_point last_frame_{};
 
-    // The captured region, read back once per batch. This is the GPU-to-CPU
-    // readback the design exists to avoid, and the first thing to replace with
-    // a compute shader that compresses in place.
+    // Pixels for the tiles of one batch, read back just before they are
+    // encoded. This is the GPU-to-CPU readback the design exists to avoid, and
+    // the first thing to replace with a compute shader that compresses in
+    // place -- at which point only blocks cross the bus, and `read_rect_` and
+    // gather_tile go with it.
     std::vector<std::uint8_t> region_pixels_;
+    core::Recti read_rect_{};
     int region_stride_ = 0;
-    bool region_valid_ = false;
 
     std::vector<std::uint8_t> tile_pixels_;
     std::vector<std::uint8_t> payload_;

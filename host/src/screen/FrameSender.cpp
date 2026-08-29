@@ -57,8 +57,7 @@ void FrameSender::set_viewport(const proto::ViewportReq& request) {
         geometry_ = fresh;
         geometry_ready_ = true;
         scheduler_.configure(fresh.cols(), fresh.rows());
-        region_valid_ = false;
-        pixels_stale_ = true;
+        read_rect_ = core::Recti{};
         DZ_INFO("screen: %dx%d at (%d, %d) -> %dx%d, %d px tiles (%d), %u fps", fresh.region.w,
                 fresh.region.h, fresh.region.x, fresh.region.y, fresh.out_w, fresh.out_h,
                 fresh.tile, fresh.tile_count(), request.fps);
@@ -68,8 +67,7 @@ void FrameSender::set_viewport(const proto::ViewportReq& request) {
 void FrameSender::stop() {
     streaming_ = false;
     geometry_ready_ = false;
-    region_valid_ = false;
-    pixels_stale_ = true;
+    read_rect_ = core::Recti{};
     if (source_) {
         source_->stop();
         source_.reset();
@@ -113,22 +111,14 @@ bool FrameSender::capture() {
 
     if (update.full || update.dirty.empty()) {
         scheduler_.mark_all_dirty();
-        pixels_stale_ = true;
     } else {
         for (const core::Recti& dirty : update.dirty) {
-            const core::Recti tiles = geometry_.tiles_touching(dirty);
-            if (tiles.w > 0 && tiles.h > 0) {
-                // Something inside the served region moved, so the pixels we
-                // are holding are no longer what it looks like.
-                pixels_stale_ = true;
-            }
-            scheduler_.mark_dirty_rect(tiles);
+            scheduler_.mark_dirty_rect(geometry_.tiles_touching(dirty));
         }
     }
     // Move rects would be handled here, if Windows ever produced any.
     for (const MoveRect& move : update.moves) {
         scheduler_.mark_dirty_rect(geometry_.tiles_touching(move.to));
-        pixels_stale_ = true;
     }
     return true;
 }
@@ -143,7 +133,9 @@ bool FrameSender::gather_tile(int index, int& w, int& h) {
     h = out.h;
     tile_pixels_.resize(static_cast<std::size_t>(w) * h * 4);
 
-    const core::Recti& region = geometry_.region;
+    // Offsets are into what read_selection() actually read, which is the
+    // bounding box of this batch rather than the whole region.
+    const core::Recti& region = read_rect_;
     for (int y = 0; y < h; ++y) {
         // Sample by area rather than by nearest: downscaling text by picking
         // one source pixel per output pixel drops whole strokes, and text is
@@ -209,6 +201,54 @@ int FrameSender::pen_tile() const noexcept {
     return hit.y * geometry_.cols() + hit.x;
 }
 
+bool FrameSender::read_selection() {
+    core::Recti box{};
+    bool any = false;
+    for (const std::uint16_t index : selected_) {
+        const core::Recti src = geometry_.tile_source_rect(static_cast<int>(index));
+        if (src.w <= 0 || src.h <= 0) {
+            continue;
+        }
+        if (!any) {
+            box = src;
+            any = true;
+            continue;
+        }
+        const int x0 = std::min(box.x, src.x);
+        const int y0 = std::min(box.y, src.y);
+        const int x1 = std::max(box.x + box.w, src.x + src.w);
+        const int y1 = std::max(box.y + box.h, src.y + src.h);
+        box = core::Recti{x0, y0, x1 - x0, y1 - y0};
+    }
+    if (!any) {
+        return false;
+    }
+
+    // Clipped here rather than left to the source, which would clip silently
+    // and hand back a buffer that does not match the rectangle asked for --
+    // and every tile would then be cut from the wrong place.
+    const core::Recti bounds = source_->bounds();
+    const int x0 = std::max(box.x, bounds.x);
+    const int y0 = std::max(box.y, bounds.y);
+    const int x1 = std::min(box.x + box.w, bounds.x + bounds.w);
+    const int y1 = std::min(box.y + box.h, bounds.y + bounds.h);
+    if (x1 <= x0 || y1 <= y0) {
+        return false;
+    }
+    box = core::Recti{x0, y0, x1 - x0, y1 - y0};
+
+    const auto started = std::chrono::steady_clock::now();
+    const bool ok = source_->read(box, region_pixels_, region_stride_);
+    stats_.read_us += static_cast<std::uint64_t>(
+        std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started)
+            .count());
+    if (!ok) {
+        return false;
+    }
+    read_rect_ = box;
+    return true;
+}
+
 void FrameSender::send_batch() {
     // Resolved here rather than when the pointer arrived, so that a viewport
     // change between the two cannot leave a tile number meaning a different
@@ -223,6 +263,15 @@ void FrameSender::send_batch() {
     scheduler_.set_focus(pen);
     scheduler_.select(budget_tiles(), selected_);
     if (selected_.empty()) {
+        return;
+    }
+
+    // Choosing before reading is what makes the budget cheap. The readback
+    // does not care how many tiles are wanted, only how large a box they span,
+    // and one tile out of a full-screen region used to cost the whole region.
+    // It is also the order a compute encoder needs: it cannot start until it
+    // knows which tiles.
+    if (!read_selection()) {
         return;
     }
 
@@ -319,33 +368,10 @@ void FrameSender::tick() {
         return;
     }
 
-    const bool holding = capture();
-
-    // The readback rides on the frame arriving, not on the clock, because the
-    // pixels can only be read while the frame is held and a still screen
-    // produces no more frames. Gating it on the clock instead stranded dirt:
-    // a change that the budget could not finish in one tick left the rest of
-    // its tiles marked, and if the screen then stopped there was never
-    // another frame to read them out of. They stayed wrong until something
-    // else happened to move.
-    //
-    // One readback for the whole region, then tiles are cut out of it. This is
-    // the expensive part and the one a compute shader replaces.
-    if (holding && pixels_stale_ && scheduler_.anything_dirty()) {
-        const auto read_started = std::chrono::steady_clock::now();
-        const bool got = source_->read(geometry_.region, region_pixels_, region_stride_);
-        stats_.read_us += static_cast<std::uint64_t>(
-            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() -
-                                                      read_started)
-                .count());
-        if (got) {
-            region_valid_ = true;
-            pixels_stale_ = false;
-        }
-    }
-    if (!region_valid_) {
-        return; // nothing has ever been read for this region
-    }
+    // Accumulates the dirty rects. Whether it acquired anything no longer
+    // decides whether a batch can go out: the capture keeps its own copy of
+    // the desktop, so the pixels are readable whether or not the screen moved.
+    capture();
 
     const auto now = std::chrono::steady_clock::now();
     const auto interval = std::chrono::milliseconds(1000 / std::max<int>(request_.fps, 1));
@@ -364,10 +390,6 @@ void FrameSender::tick() {
         return;
     }
     last_frame_ = now;
-
-    // Sending is allowed without a frame in hand. The buffer is only used once
-    // it holds everything that has been marked, so "no new frame" means "the
-    // screen has not moved since this was read", which makes it current.
     send_batch();
 }
 
