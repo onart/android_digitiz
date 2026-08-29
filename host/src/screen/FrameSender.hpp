@@ -125,11 +125,18 @@ private:
     bool geometry_ready_ = false;
 
     std::uint32_t seq_ = 0;
-    // Four. One was a bad default: the readback is charged per batch, so a
-    // budget of one pays the whole fixed cost to ship a single 2 KB tile. And
-    // it bought nothing for the pen, whose tile is outside the budget and goes
-    // every batch whatever this is.
-    int budget_tiles_ = 4;
+    // Thirty-two, because the cost of a batch is now almost all fixed. Once
+    // the encoding moved to the GPU a batch measured 1112 us at four tiles and
+    // 2651 at a hundred and twenty-eight -- thirty-two times the tiles for two
+    // and a half times the time, or about 12 us a tile on top of a millisecond
+    // that is charged whatever happens.
+    //
+    // At four, a full screen of 180 tiles converges in a second and a half. At
+    // thirty-two it is a fifth of a second, for about half a millisecond more
+    // of a 33 ms tick. What stops it going higher is no longer the host's time
+    // but the link, and the send queue already enforces that: nothing new is
+    // built until the last batch has drained.
+    int budget_tiles_ = 32;
     bool pen_down_ = false;
     int logged_pen_ = -1;
     std::int32_t pen_x_ = 0;
