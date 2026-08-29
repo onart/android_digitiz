@@ -62,6 +62,8 @@ add_library(digitiz_host_lib STATIC
     src/platform/Win32Process.cpp
     src/screen/CaptureProbe.cpp
     src/screen/Etc2.cpp
+    src/screen/Etc2Compute.cpp
+    src/screen/Etc2ComputeTest.cpp
     src/screen/FrameProbe.cpp
     src/screen/FrameSender.cpp
     src/screen/Etc2Conformance.cpp
@@ -81,7 +83,7 @@ if(WIN32)
     # Shcore: GetDpiForMonitor.  ws2_32: sockets.  Dwmapi: the visible window
     # frame, which is not what GetWindowRect reports.
     # d3d11/dxgi: Desktop Duplication.
-    target_link_libraries(digitiz_host_lib PUBLIC Shcore ws2_32 Dwmapi d3d11 dxgi)
+    target_link_libraries(digitiz_host_lib PUBLIC Shcore ws2_32 Dwmapi d3d11 dxgi d3dcompiler)
 endif()
 
 add_executable(digitiz_host src/main.cpp)
