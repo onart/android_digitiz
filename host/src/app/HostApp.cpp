@@ -472,7 +472,7 @@ void HostApp::poll_foreground() {
     active_window_known_ = true;
 
     DZ_INFO("active window: %s (pid %u)",
-            fresh.process.empty() ? "<unidentified>" : fresh.process.c_str(), fresh.pid);
+            fresh.process.empty() ? "<알 수 없음>" : fresh.process.c_str(), fresh.pid);
     send_active_window();
 }
 
@@ -648,7 +648,7 @@ void HostApp::run_accuracy_selftest() {
     const auto level = result.max_error_px <= 1.0 ? core::LogLevel::Info : core::LogLevel::Warn;
     core::log_printf(level,
                      "selftest: %d samples, max error %.2f px (at %d, %d), mean %.3f px, "
-                     "%d failure(s)",
+                     "실패 %d",
                      result.samples, result.max_error_px, result.worst_x, result.worst_y,
                      result.mean_error_px, result.failures);
 }
@@ -672,11 +672,11 @@ void HostApp::draw_status_panel() {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.16f, 0.16f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.58f, 0.20f, 0.20f, 1.0f));
     }
-    if (ImGui::Button(enabled_ ? "INJECTION: ON" : "INJECTION: OFF", ImVec2(-1.0f, 44.0f))) {
+    if (ImGui::Button(enabled_ ? "주입: 켜짐" : "주입: 꺼짐", ImVec2(-1.0f, 44.0f))) {
         enabled_ = !enabled_;
     }
     ImGui::PopStyleColor(2);
-    ImGui::SetItemTooltip("While off, pointer messages are received and counted but never injected.");
+    ImGui::SetItemTooltip("꺼져 있으면 포인터 메시지를 받아서 세기만 하고 주입하지 않습니다.");
 
     if (enabled_ != was_enabled) {
         {
@@ -698,14 +698,14 @@ void HostApp::draw_status_panel() {
     // key off, so seeing the same string on both ends is the whole diagnosis
     // when a preset does not come up.
     if (!active_window_known_) {
-        ImGui::TextDisabled("Active window: (not detected yet)");
+        ImGui::TextDisabled("활성 창: (아직 감지 안 됨)");
     } else if (active_window_.process.empty()) {
-        ImGui::Text("Active window: unidentified (pid %u)", active_window_.pid);
+        ImGui::Text("활성 창: 알 수 없음 (pid %u)", active_window_.pid);
     } else {
-        ImGui::Text("Active window: %s (pid %u)", active_window_.process.c_str(),
+        ImGui::Text("활성 창: %s (pid %u)", active_window_.process.c_str(),
                     active_window_.pid);
     }
-    ImGui::SetItemTooltip("Sent to the guest whenever it changes, for switching button presets.");
+    ImGui::SetItemTooltip("바뀔 때마다 게스트로 보냅니다. 버튼 프리셋 전환에 쓰입니다.");
 
     // --- cursor ---
     // Custom buttons are entered on the phone as literal desktop coordinates,
@@ -722,34 +722,34 @@ void HostApp::draw_status_panel() {
         if (have_window) {
             const std::int32_t rx = cursor_x - window.x;
             const std::int32_t ry = cursor_y - window.y;
-            ImGui::Text("Cursor: %d, %d in window", rx, ry);
+            ImGui::Text("커서: 창 기준 %d, %d", rx, ry);
             ImGui::SameLine();
-            if (ImGui::SmallButton("Copy")) {
+            if (ImGui::SmallButton("복사")) {
                 char buffer[64];
                 std::snprintf(buffer, sizeof(buffer), "%d, %d", rx, ry);
                 ImGui::SetClipboardText(buffer);
             }
             ImGui::SetItemTooltip(
-                "What a custom button stores. Hover the target, read here, type on the phone.");
+                "커스텀 버튼에 넣는 값입니다. 원하는 지점에 마우스를 올리고, 여기서 읽어, 폰에 입력하세요.");
             ImGui::SameLine();
-            ImGui::TextDisabled("(desktop %d, %d)", cursor_x, cursor_y);
+            ImGui::TextDisabled("(데스크톱 %d, %d)", cursor_x, cursor_y);
         } else {
-            ImGui::Text("Cursor: %d, %d on the desktop; no focused window", cursor_x, cursor_y);
+            ImGui::Text("커서: 데스크톱 기준 %d, %d (포커스 창 없음)", cursor_x, cursor_y);
         }
     }
 
     // --- display ---
-    if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::CollapsingHeader("디스플레이", ImGuiTreeNodeFlags_DefaultOpen)) {
         const core::Recti& v = layout_.virtual_bounds;
-        ImGui::Text("Virtual desktop: %d x %d at (%d, %d)", v.w, v.h, v.x, v.y);
+        ImGui::Text("가상 데스크톱: %d x %d @ (%d, %d)", v.w, v.h, v.x, v.y);
 
-        if (ImGui::BeginTable("monitors", 4,
+        if (ImGui::BeginTable("모니터", 4,
                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                   ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn("Device");
-            ImGui::TableSetupColumn("Bounds");
+            ImGui::TableSetupColumn("장치");
+            ImGui::TableSetupColumn("범위");
             ImGui::TableSetupColumn("DPI");
-            ImGui::TableSetupColumn("Primary");
+            ImGui::TableSetupColumn("주 모니터");
             ImGui::TableHeadersRow();
 
             for (const MonitorInfo& m : layout_.monitors) {
@@ -761,14 +761,14 @@ void HostApp::draw_status_panel() {
                 ImGui::TableNextColumn();
                 ImGui::Text("%u", m.dpi);
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(m.primary ? "yes" : "");
+                ImGui::TextUnformatted(m.primary ? "예" : "");
             }
             ImGui::EndTable();
         }
     }
 
     // --- pipeline ---
-    if (ImGui::CollapsingHeader("Pointer pipeline", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::CollapsingHeader("포인터 파이프라인", ImGuiTreeNodeFlags_DefaultOpen)) {
         PointerPipeline::Stats s;
         bool stroke = false;
         {
@@ -777,21 +777,21 @@ void HostApp::draw_status_panel() {
             stroke = pipeline_->stroke_active();
         }
 
-        ImGui::Text("received %llu   injected %llu", static_cast<unsigned long long>(s.received),
+        ImGui::Text("수신 %llu   주입 %llu", static_cast<unsigned long long>(s.received),
                     static_cast<unsigned long long>(s.injected));
-        ImGui::Text("dropped (off) %llu   off-screen %llu   protocol errors %llu   "
-                    "inject failures %llu",
+        ImGui::Text("드롭(꺼짐) %llu   화면 밖 %llu   프로토콜 오류 %llu   "
+                    "주입 실패 %llu",
                     static_cast<unsigned long long>(s.dropped_disabled),
                     static_cast<unsigned long long>(s.dropped_off_screen),
                     static_cast<unsigned long long>(s.protocol_errors),
                     static_cast<unsigned long long>(s.inject_failures));
-        ImGui::Text("stroke: %s   clamped coords: %llu", stroke ? "ACTIVE" : "idle",
+        ImGui::Text("획: %s   범위로 당긴 좌표: %llu", stroke ? "활성" : "대기",
                     static_cast<unsigned long long>(injector_->clamped_count()));
-        ImGui::Text("shortcuts sent %llu   unknown key names %llu   no focused window %llu",
+        ImGui::Text("단축키 전송 %llu   모르는 키 이름 %llu   포커스 창 없음 %llu",
                     static_cast<unsigned long long>(s.keys_sent),
                     static_cast<unsigned long long>(s.keys_unknown),
                     static_cast<unsigned long long>(s.dropped_no_window));
-        if (ImGui::SmallButton("Reset stats")) {
+        if (ImGui::SmallButton("통계 초기화")) {
             std::lock_guard lock(pipeline_mutex_);
             pipeline_->reset_stats();
         }
@@ -807,12 +807,12 @@ void HostApp::draw_status_panel() {
 }
 
 void HostApp::draw_screen_panel() {
-    if (!ImGui::CollapsingHeader("Screen transfer", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (!ImGui::CollapsingHeader("화면 전송", ImGuiTreeNodeFlags_DefaultOpen)) {
         return;
     }
 
     if (!frames_.streaming()) {
-        ImGui::TextDisabled("Not streaming. The guest asks for a region when it wants one.");
+        ImGui::TextDisabled("전송 중이 아닙니다. 게스트가 필요할 때 영역을 요청합니다.");
         return;
     }
 
@@ -820,9 +820,9 @@ void HostApp::draw_screen_panel() {
     const FrameSender::Stats& s = frames_.stats();
     ImGui::Text("%dx%d at (%d, %d) -> %dx%d", g.region.w, g.region.h, g.region.x, g.region.y,
                 g.out_w, g.out_h);
-    ImGui::Text("%d px tiles: %d total, %d dirty, %d per batch", g.tile, g.tile_count(),
+    ImGui::Text("%d px 타일: 전체 %d, 더티 %d, 배치당 %d", g.tile, g.tile_count(),
                 frames_.dirty_tiles(), frames_.budget_tiles());
-    ImGui::Text("%llu batch(es), %llu tile(s), %.1f KiB sent from %.1f KiB of blocks",
+    ImGui::Text("배치 %llu, 타일 %llu, %.1f KiB 전송 (블록 %.1f KiB 중)",
                 static_cast<unsigned long long>(s.frames),
                 static_cast<unsigned long long>(s.tiles), s.bytes / 1024.0,
                 s.raw_bytes / 1024.0);
@@ -830,48 +830,47 @@ void HostApp::draw_screen_panel() {
         ImGui::SameLine();
         ImGui::TextDisabled("(%.1fx)", static_cast<double>(s.raw_bytes) / s.bytes);
     }
-    ImGui::Text("encode %.1f ms   skipped while busy %llu   captures %llu", s.last_encode_ms,
+    ImGui::Text("인코딩 %.1f ms   바빠서 거름 %llu   캡처 %llu", s.last_encode_ms,
                 static_cast<unsigned long long>(s.skipped_busy),
                 static_cast<unsigned long long>(s.captures));
     if (s.tiles > 0 && s.frames > 0) {
-        ImGui::Text("per tile: gather %.0f us, etc2 %.0f us   per batch: read %.0f us, "
+        ImGui::Text("타일당: 수집 %.0f us, etc2 %.0f us   배치당: 읽기 %.0f us, "
                     "zstd %.0f us",
                     static_cast<double>(s.gather_us) / static_cast<double>(s.tiles),
                     static_cast<double>(s.etc2_us) / static_cast<double>(s.tiles),
                     static_cast<double>(s.read_us) / static_cast<double>(s.frames),
                     static_cast<double>(s.zstd_us) / static_cast<double>(s.frames));
         ImGui::SetItemTooltip(
-            "The readback is once per batch and does not grow with the budget; the "
-            "downscale and the encode are per tile and do.");
+            "리드백은 배치당 한 번이라 예산에 따라 늘지 않고, "
+            "축소와 인코딩은 타일당이라 늘어납니다.");
     }
 
     int budget = frames_.budget_tiles();
-    if (ImGui::SliderInt("Sweep tiles per batch", &budget, 1, 256)) {
+    if (ImGui::SliderInt("배치당 스위프 타일", &budget, 1, 256)) {
         frames_.set_budget_tiles(budget);
         settings_.set_sweep_tiles(budget);
     }
     if (const int suggested = frames_.recommended_tiles(); suggested > 0) {
-        ImGui::Text("Suggested: %d", suggested);
+        ImGui::Text("권장: %d", suggested);
         ImGui::SameLine();
-        if (ImGui::SmallButton("Use")) {
+        if (ImGui::SmallButton("적용")) {
             frames_.set_budget_tiles(suggested);
             settings_.set_sweep_tiles(suggested);
         }
         ImGui::SetItemTooltip(
-            "Steered from what a batch actually cost here over the last second, and from "
-            "whether the last one had drained before the next was due.\n"
-            "Everything else about this number was measured on one PC and one phone; this "
-            "is the part that is measured on yours.");
+            "지난 1초 동안 이 기계에서 배치가 실제로 얼마나 걸렸는지, 그리고 다음 배치가 "
+            "나갈 때까지 직전 배치가 다 빠졌는지로 방향을 잡습니다.\n"
+            "이 숫자에 관한 나머지는 전부 PC 한 대와 폰 한 대에서 잰 값입니다. "
+            "이것만 당신 기계에서 잰 값입니다.");
     }
     ImGui::SetItemTooltip(
-        "Tiles one batch spends on the sweep. The tile under the pen is sent on top of "
-        "this and does not count against it.\n"
-        "Low keeps the pen's own tile the freshest thing on the link; high makes the rest "
-        "of the picture catch up sooner.");
+        "한 배치가 스위프에 쓰는 타일 수입니다. 펜 아래 타일은 이 예산 밖에서 "
+        "따로 나가므로 여기에 포함되지 않습니다.\n"
+        "작으면 펜 자리가 링크에서 가장 신선하고, 크면 나머지 그림이 더 빨리 따라옵니다.");
 }
 
 void HostApp::draw_smoothing_panel() {
-    if (!ImGui::CollapsingHeader("Curve smoothing", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (!ImGui::CollapsingHeader("곡선 보정", ImGuiTreeNodeFlags_DefaultOpen)) {
         return;
     }
 
@@ -892,21 +891,20 @@ void HostApp::draw_smoothing_panel() {
     const float was_step = step;
     const int was_alpha = alpha_choice;
 
-    ImGui::Checkbox("Fit a Catmull-Rom curve between samples", &enabled);
+    ImGui::Checkbox("샘플 사이를 Catmull-Rom 곡선으로 채우기", &enabled);
     ImGui::SetItemTooltip(
-        "Fills the gaps between incoming samples so a stroke draws as a curve "
-        "rather than a polyline.\n"
-        "Costs one sample of latency and there is no way around it: the curve "
-        "through a point is not defined until the next point arrives. Absolute "
-        "strokes only — slide mode stays direct.");
+        "도착한 샘플 사이를 채워서 획이 꺾은선이 아니라 곡선으로 그려지게 합니다.\n"
+        "샘플 하나만큼의 지연이 붙고 이건 피할 수 없습니다 — 어떤 점을 지나는 곡선은 "
+        "다음 점이 와야 정해지기 때문입니다. 절대 좌표 획에만 적용되고 "
+        "슬라이딩 모드는 그대로 직결입니다.");
 
     ImGui::BeginDisabled(!enabled);
     ImGui::SetNextItemWidth(180.0f);
-    ImGui::SliderFloat("Point spacing", &step, 0.5f, 12.0f, "%.1f px");
+    ImGui::SliderFloat("점 간격", &step, 0.5f, 12.0f, "%.1f px");
     ImGui::SetNextItemWidth(180.0f);
-    ImGui::Combo("Parameterization", &alpha_choice, "Uniform\0Centripetal\0Chordal\0");
-    ImGui::SetItemTooltip("Centripetal is the safe default. Uniform produces cusps and loops "
-                          "when samples are unevenly spaced, which decimation guarantees.");
+    ImGui::Combo("매개변수화", &alpha_choice, "균일\0구심\0현 길이\0");
+    ImGui::SetItemTooltip("구심이 안전한 기본값입니다. 균일은 샘플 간격이 고르지 않을 때 "
+                          "첨점과 고리를 만드는데, 솎아내기가 그 상황을 보장합니다.");
     ImGui::EndDisabled();
 
     if (enabled) {
@@ -914,12 +912,12 @@ void HostApp::draw_smoothing_panel() {
         // rather than a number pulled from the air.
         std::lock_guard lock(session_mutex_);
         if (sample_interval_.empty()) {
-            ImGui::TextDisabled("Added lag: one sample — draw to measure the interval");
+            ImGui::TextDisabled("추가 지연: 한 샘플 — 그려 보면 간격이 측정됩니다");
         } else {
-            ImGui::Text("Added lag: ~%.0f ms (one sample)", sample_interval_.average());
+            ImGui::Text("추가 지연: 약 %.0f ms (한 샘플)", sample_interval_.average());
         }
     }
-    ImGui::TextDisabled("%llu point(s) generated", static_cast<unsigned long long>(points));
+    ImGui::TextDisabled("점 %llu개 생성됨", static_cast<unsigned long long>(points));
 
     if (enabled != was_enabled || step != was_step || alpha_choice != was_alpha) {
         const double alpha = alpha_choice == 0 ? 0.0 : (alpha_choice == 2 ? 1.0 : 0.5);
@@ -934,11 +932,11 @@ void HostApp::draw_smoothing_panel() {
 }
 
 void HostApp::draw_connection_panel() {
-    if (!ImGui::CollapsingHeader("Connection", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (!ImGui::CollapsingHeader("연결", ImGuiTreeNodeFlags_DefaultOpen)) {
         return;
     }
     if (!transport_) {
-        ImGui::TextDisabled("Transport not started.");
+        ImGui::TextDisabled("전송이 시작되지 않았습니다.");
         return;
     }
 
@@ -964,10 +962,10 @@ void HostApp::draw_connection_panel() {
     }
 
     if (!st.device_serial.empty()) {
-        ImGui::Text("Device: %s  %s", st.device_serial.c_str(), st.device_model.c_str());
+        ImGui::Text("기기: %s  %s", st.device_serial.c_str(), st.device_model.c_str());
     }
     if (st.host_port != 0) {
-        ImGui::Text("Tunnel: device tcp:%d -> host tcp:%d", kDevicePort, st.host_port);
+        ImGui::Text("터널: 기기 tcp:%d -> 호스트 tcp:%d", kDevicePort, st.host_port);
     }
 
     {
@@ -979,98 +977,97 @@ void HostApp::draw_connection_panel() {
         if (rtt_ms_ >= 0.0) {
             ImGui::Text("RTT: %.2f ms", rtt_ms_);
         } else if (st.state == TransportState::Connected) {
-            ImGui::TextDisabled("RTT: waiting for the first PONG");
+            ImGui::TextDisabled("RTT: 첫 PONG 기다리는 중");
         }
 
         ImGui::Separator();
 
         if (link_latency_.empty()) {
-            ImGui::TextDisabled("Latency: draw on the phone to measure");
+            ImGui::TextDisabled("지연: 폰에 그리면 측정됩니다");
         } else {
             // Max is the number that matters: an occasional slow event is what
             // the hand notices, not the average.
-            ImGui::Text("Event to host:  %.1f ms avg   %.1f min   %.1f max",
+            ImGui::Text("이벤트→호스트: %.1f ms 평균   %.1f 최소   %.1f 최대",
                         link_latency_.average(), link_latency_.min(), link_latency_.max());
             ImGui::SetItemTooltip(
-                "From the timestamp Android stamped on the touch to the moment this host decoded "
-                "it: the phone's input delivery plus the USB tunnel.\n"
-                "Does not include touchscreen scan-out, which happens before that timestamp, so "
-                "true finger-to-cursor latency is somewhat higher.");
+                "안드로이드가 터치에 찍은 시각부터 이 호스트가 그걸 해석한 순간까지입니다. "
+                "폰의 입력 전달과 USB 터널이 여기 들어갑니다.\n"
+                "터치스크린 스캔아웃은 그 시각보다 앞이라 빠져 있으므로, 손끝에서 커서까지의 "
+                "실제 지연은 이보다 조금 더 깁니다.");
         }
         if (!inject_latency_.empty()) {
-            ImGui::Text("Injection:      %.0f us avg   %.0f us max",
+            ImGui::Text("주입:          %.0f us 평균   %.0f us 최대",
                         inject_latency_.average() * 1000.0, inject_latency_.max() * 1000.0);
         }
         if (clock_.ready()) {
-            ImGui::TextDisabled("clock offset %.1f ms, best RTT %.2f ms",
+            ImGui::TextDisabled("시계 오프셋 %.1f ms, 최적 RTT %.2f ms",
                                 clock_.offset_us() / 1000.0,
                                 static_cast<double>(clock_.best_rtt_us()) / 1000.0);
         }
     }
 
-    ImGui::Text("rx %llu msg / %llu B    tx %llu msg / %llu B",
+    ImGui::Text("수신 %llu개 / %llu B    송신 %llu개 / %llu B",
                 static_cast<unsigned long long>(st.rx_messages),
                 static_cast<unsigned long long>(st.rx_bytes),
                 static_cast<unsigned long long>(st.tx_messages),
                 static_cast<unsigned long long>(st.tx_bytes));
-    ImGui::Text("sessions %llu    framer resync %llu B",
+    ImGui::Text("세션 %llu    프레이머 재동기 %llu B",
                 static_cast<unsigned long long>(st.sessions),
                 static_cast<unsigned long long>(st.resync_bytes));
 
-    if (st.state == TransportState::Connected && ImGui::SmallButton("Drop session")) {
+    if (st.state == TransportState::Connected && ImGui::SmallButton("세션 끊기")) {
         transport_->drop_session();
     }
 }
 
 void HostApp::draw_selftest_panel() {
-    if (!ImGui::CollapsingHeader("Self-test", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (!ImGui::CollapsingHeader("자체 점검", ImGuiTreeNodeFlags_DefaultOpen)) {
         return;
     }
 
-    ImGui::TextDisabled("Runs without a phone or transport.");
+    ImGui::TextDisabled("폰이나 전송 연결 없이 동작합니다.");
 
-    if (ImGui::Button("Move cursor to center")) {
+    if (ImGui::Button("커서를 중앙으로")) {
         move_cursor_to_center();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Left-click at center")) {
+    if (ImGui::Button("중앙에서 좌클릭")) {
         click_at_center();
     }
-    ImGui::SetItemTooltip("Clicks whatever window happens to be at the center of the primary "
-                          "monitor.");
+    ImGui::SetItemTooltip("주 모니터 중앙에 있는 창이 무엇이든 그걸 클릭합니다.");
 
-    if (ImGui::Button("Run coordinate accuracy sweep")) {
+    if (ImGui::Button("좌표 정확도 검사")) {
         run_accuracy_selftest();
     }
-    ImGui::SetItemTooltip("Moves the cursor to 25 points across the virtual desktop and compares "
-                          "against the position the OS reports back. Restores the cursor after.");
+    ImGui::SetItemTooltip("가상 데스크톱 전역의 25개 지점으로 커서를 옮겨 "
+                          "OS가 돌려주는 위치와 비교합니다. 끝나면 커서를 되돌립니다.");
 
     if (accuracy_.ran) {
         const bool good = accuracy_.max_error_px <= 1.0 && accuracy_.failures == 0;
         ImGui::TextColored(good ? ImVec4(0.45f, 0.90f, 0.50f, 1.0f)
                                 : ImVec4(1.00f, 0.78f, 0.35f, 1.0f),
-                           "%d samples | max %.2f px | mean %.3f px | %d failure(s)",
+                           "샘플 %d | 최대 %.2f px | 평균 %.3f px | 실패 %d",
                            accuracy_.samples, accuracy_.max_error_px, accuracy_.mean_error_px,
                            accuracy_.failures);
         if (!good) {
-            ImGui::TextDisabled("Worst point: (%d, %d)", accuracy_.worst_x, accuracy_.worst_y);
+            ImGui::TextDisabled("최악 지점: (%d, %d)", accuracy_.worst_x, accuracy_.worst_y);
         }
     }
 }
 
 void HostApp::draw_log_panel() {
-    ImGui::Begin("Console");
+    ImGui::Begin("콘솔");
 
     ImGui::SetNextItemWidth(120.0f);
-    ImGui::Combo("Level", &log_min_level_, "Trace\0Debug\0Info\0Warn\0Error\0");
+    ImGui::Combo("수준", &log_min_level_, "추적\0디버그\0정보\0경고\0오류\0");
     ImGui::SameLine();
-    ImGui::Checkbox("Auto-scroll", &log_autoscroll_);
+    ImGui::Checkbox("자동 스크롤", &log_autoscroll_);
     ImGui::SameLine();
-    if (ImGui::Button("Clear")) {
+    if (ImGui::Button("지우기")) {
         log_->clear();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Copy")) {
+    if (ImGui::Button("복사")) {
         std::string all;
         log_->for_each([&](const LogEntry& e) {
             char prefix[48];

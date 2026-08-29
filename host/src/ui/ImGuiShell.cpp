@@ -1,5 +1,7 @@
 #include "ui/ImGuiShell.hpp"
 
+#include <cstdio>
+
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -51,6 +53,7 @@ bool ImGuiShell::init(const char* title, int width, int height) {
     ImGui::CreateContext();
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
+    load_font();
 
     if (!ImGui_ImplGlfw_InitForOpenGL(window_, true)) {
         DZ_ERROR("ImGui_ImplGlfw_InitForOpenGL failed");
@@ -63,6 +66,44 @@ bool ImGuiShell::init(const char* title, int width, int height) {
 
     imgui_ready_ = true;
     return true;
+}
+
+// The window is in Korean, and ImGui's built-in font has no Hangul in it at
+// all -- every label would come out as boxes. So a system font is loaded with
+// the Korean glyph range.
+//
+// Bold rather than regular: this is a panel of small readouts against a dark
+// background, and the regular weight of these faces goes thin and grey at the
+// sizes involved. If neither face is there the built-in font stays, and the
+// window is readable in the parts that are not Korean.
+void ImGuiShell::load_font() {
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Malgun Gothic Bold ships with Windows; Noto Sans KR is what a machine
+    // that has had fonts installed on purpose is likely to have.
+    static const char* kCandidates[] = {
+        "C:/Windows/Fonts/malgunbd.ttf",
+        "C:/Windows/Fonts/NotoSansKR-Bold.ttf",
+        "C:/Windows/Fonts/NotoSansCJKkr-Bold.otf",
+        "C:/Windows/Fonts/malgun.ttf",
+    };
+
+    for (const char* path : kCandidates) {
+        std::FILE* f = std::fopen(path, "rb");
+        if (f == nullptr) {
+            continue;
+        }
+        std::fclose(f);
+        // GetGlyphRangesKorean is Latin plus the 2350 syllables in common use,
+        // not all 11172 -- the full set would be a much larger atlas for
+        // syllables no interface writes.
+        if (io.Fonts->AddFontFromFileTTF(path, 16.0f, nullptr,
+                                         io.Fonts->GetGlyphRangesKorean()) != nullptr) {
+            DZ_INFO("ui: font %s", path);
+            return;
+        }
+    }
+    DZ_WARN("ui: no Korean font found; labels will be boxes");
 }
 
 void ImGuiShell::shutdown() {

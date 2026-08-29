@@ -13,6 +13,12 @@ public:
     bool init(const char* title, int width, int height);
     void shutdown();
 
+private:
+    // Pulls in a system face with Hangul; the built-in font has none.
+    void load_font();
+
+public:
+
     // Returns false once the user has asked to close the window.
     // Blocks until an event arrives or the idle timeout expires, so an idle
     // host does not spin a render loop at display refresh rate.
