@@ -69,12 +69,21 @@ public:
     const Stats& stats() const noexcept { return stats_; }
     const ViewportGeometry& geometry() const noexcept { return geometry_; }
     int dirty_tiles() const noexcept { return scheduler_.dirty_count(); }
-    // Uncompressed bytes a batch may spend. The cap is on the uncompressed
-    // size because that is the part known before anything is compressed,
-    // which is what makes it a budget rather than a hope.
-    void set_budget_bytes(int bytes) noexcept { budget_bytes_ = bytes; }
-    int budget_bytes() const noexcept { return budget_bytes_; }
-    int budget_tiles() const noexcept;
+    // Tiles one batch may spend on the sweep.
+    //
+    // Counted in tiles rather than bytes, because ETC2 is a fixed 8:1: N tiles
+    // is exactly N * (tile/4)^2 * 8 bytes before compression, known before
+    // anything is compressed. That is what makes it a budget rather than a
+    // hope, and stating it in bytes only hid the number that matters.
+    //
+    // It must be smaller than the grid or it is not a cap at all -- a budget
+    // of 192 against a 180-tile grid was the same as having none, and it left
+    // the sweep with nothing to converge over.
+    //
+    // The tile under the pen does not come out of this. It rides on top, so
+    // the pen and the sweep never take from each other.
+    void set_budget_tiles(int tiles) noexcept { budget_tiles_ = tiles > 0 ? tiles : 1; }
+    int budget_tiles() const noexcept { return budget_tiles_; }
 
 private:
     bool ensure_source();
@@ -94,7 +103,10 @@ private:
     bool geometry_ready_ = false;
 
     std::uint32_t seq_ = 0;
-    int budget_bytes_ = 384 * 1024;
+    // One. The default spends the link on how fresh the pen's own tile is
+    // rather than on how fast the rest catches up, which is the right way
+    // round for drawing; raise it when the whole picture matters more.
+    int budget_tiles_ = 1;
     std::chrono::steady_clock::time_point last_frame_{};
 
     // The captured region, read back once per batch. This is the GPU-to-CPU

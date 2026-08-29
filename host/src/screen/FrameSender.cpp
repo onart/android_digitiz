@@ -76,17 +76,6 @@ void FrameSender::stop() {
     scheduler_.configure(0, 0);
 }
 
-int FrameSender::budget_tiles() const noexcept {
-    if (!geometry_.valid()) {
-        return 0;
-    }
-    const std::size_t per_tile = etc2_size(geometry_.tile, geometry_.tile);
-    if (per_tile == 0) {
-        return 0;
-    }
-    return std::max(static_cast<int>(static_cast<std::size_t>(budget_bytes_) / per_tile), 1);
-}
-
 bool FrameSender::ensure_source() {
     if (source_) {
         return true;

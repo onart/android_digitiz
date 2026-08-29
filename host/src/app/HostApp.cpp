@@ -778,14 +778,15 @@ void HostApp::draw_screen_panel() {
                 static_cast<unsigned long long>(s.skipped_busy),
                 static_cast<unsigned long long>(s.captures));
 
-    int budget = frames_.budget_bytes() / 1024;
-    if (ImGui::SliderInt("Batch budget (KiB)", &budget, 16, 2048)) {
-        frames_.set_budget_bytes(budget * 1024);
+    int budget = frames_.budget_tiles();
+    if (ImGui::SliderInt("Sweep tiles per batch", &budget, 1, 64)) {
+        frames_.set_budget_tiles(budget);
     }
     ImGui::SetItemTooltip(
-        "Uncompressed block bytes one batch may spend. The cap is on the uncompressed size "
-        "because that is what is known before anything is compressed.\n"
-        "Raising it converges faster and leaves less room for input.");
+        "Tiles one batch spends on the sweep. The tile under the pen is sent on top of "
+        "this and does not count against it.\n"
+        "Low keeps the pen's own tile the freshest thing on the link; high makes the rest "
+        "of the picture catch up sooner.");
 }
 
 void HostApp::draw_smoothing_panel() {
