@@ -10,7 +10,7 @@ void TileScheduler::configure(int cols, int rows) {
     dirty_.assign(static_cast<std::size_t>(size()), false);
     dirty_count_ = 0;
     cursor_ = 0;
-    focus_ = core::Recti{};
+    focus_ = -1;
     // The guest has nothing for this grid yet, so all of it is owed.
     mark_all_dirty();
 }
@@ -44,43 +44,37 @@ void TileScheduler::mark_dirty_rect(core::Recti rect) {
     }
 }
 
-void TileScheduler::set_focus(core::Recti rect) {
-    focus_ = rect;
-}
-
-bool TileScheduler::in_focus(int index) const noexcept {
-    if (focus_.w <= 0 || focus_.h <= 0 || cols_ <= 0) {
-        return false;
-    }
-    const int x = index % cols_;
-    const int y = index / cols_;
-    return x >= focus_.x && x < focus_.x + focus_.w && y >= focus_.y && y < focus_.y + focus_.h;
+void TileScheduler::set_focus(int index) noexcept {
+    focus_ = valid(index) ? index : -1;
 }
 
 void TileScheduler::select(int budget, std::vector<std::uint16_t>& out) const {
     out.clear();
+    if (size() == 0) {
+        return;
+    }
+
+    // The pen's tile, on top of the budget and dirty or not. "Clean" only
+    // means the guest has been sent what that tile last looked like, and the
+    // place the stroke is landing is the one place worth paying for a repeat.
+    if (valid(focus_)) {
+        out.push_back(static_cast<std::uint16_t>(focus_));
+    }
+
     if (budget <= 0 || dirty_count_ == 0) {
         return;
     }
 
+    // Then one lap of the sweep from wherever it stopped.
     const int n = size();
-
-    // The pen first. Not "always send" -- a clean tile has nothing to say, and
-    // spending budget on one would come straight out of the tiles that do.
-    for (int i = 0; i < n && static_cast<int>(out.size()) < budget; ++i) {
-        if (dirty_[static_cast<std::size_t>(i)] && in_focus(i)) {
-            out.push_back(static_cast<std::uint16_t>(i));
-        }
-    }
-
-    // Then one lap of the sweep from wherever it stopped, skipping anything
-    // the focus pass already took.
-    for (int step = 0; step < n && static_cast<int>(out.size()) < budget; ++step) {
+    int taken = 0;
+    for (int step = 0; step < n && taken < budget; ++step) {
         const int i = (cursor_ + step) % n;
-        if (!dirty_[static_cast<std::size_t>(i)] || in_focus(i)) {
+        if (!dirty_[static_cast<std::size_t>(i)] || i == focus_) {
             continue;
         }
         out.push_back(static_cast<std::uint16_t>(i));
+        ++taken;
     }
 }
 
@@ -100,6 +94,12 @@ void TileScheduler::mark_sent(const std::vector<std::uint16_t>& tiles) {
         if (dirty_[static_cast<std::size_t>(index)]) {
             dirty_[static_cast<std::size_t>(index)] = false;
             --dirty_count_;
+        }
+        // The pen's tile is not part of the lap. It can be anywhere, and
+        // letting it drag the cursor along would skip every dirty tile
+        // between the sweep and wherever the hand happens to be.
+        if (index == focus_) {
+            continue;
         }
         // How far round the lap this tile sits, so the sweep resumes after the
         // last one taken rather than at the largest index -- the lap wraps.

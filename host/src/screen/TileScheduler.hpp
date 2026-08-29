@@ -10,8 +10,12 @@
 //
 // Two rules on top of the cap:
 //
-//   * Whatever the pen is near goes first. That is the part being looked at,
-//     and it should never be the part that is behind.
+//   * The tile under the pen goes with every batch, on top of the budget and
+//     whether or not it is dirty. That is the part being looked at, and it
+//     should never be the part that is behind. Outside the budget because
+//     inside it the pen and the sweep take from each other: give the pen a
+//     slot and the rest converges that much slower, exactly when the screen
+//     is changing most.
 //   * Everything else is a sweep, not a priority queue. A cursor walks the
 //     grid and takes the dirty tiles it passes. Sweeping guarantees no tile
 //     starves however often the rest of the screen changes, and it repaints in
@@ -46,11 +50,13 @@ public:
     // `rect` is in tile coordinates, clipped to the grid.
     void mark_dirty_rect(core::Recti rect);
 
-    // Where the pen is, in tile coordinates. An empty rect clears it.
-    void set_focus(core::Recti rect);
+    // The one tile under the pen, or -1 while it is not touching.
+    void set_focus(int index) noexcept;
+    int focus() const noexcept { return focus_; }
 
-    // Up to `budget` tiles, focus first and then along the sweep. Does not
-    // change any state: nothing is clean until it has actually gone out.
+    // The pen's tile if there is one, then up to `budget` tiles along the
+    // sweep. `budget` counts the sweep only. Does not change any state:
+    // nothing is clean until it has actually gone out.
     void select(int budget, std::vector<std::uint16_t>& out) const;
 
     // Clears the dirty flags and advances the sweep past what was taken. Call
@@ -66,7 +72,6 @@ public:
 
 private:
     bool valid(int index) const noexcept { return index >= 0 && index < size(); }
-    bool in_focus(int index) const noexcept;
 
     int cols_ = 0;
     int rows_ = 0;
@@ -75,7 +80,7 @@ private:
     // Where the sweep resumes. Kept across frames, which is what spreads the
     // budget over the whole grid instead of replaying the same tiles.
     int cursor_ = 0;
-    core::Recti focus_{};
+    int focus_ = -1;
 };
 
 } // namespace digitiz::host

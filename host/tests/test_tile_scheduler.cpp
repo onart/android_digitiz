@@ -109,43 +109,71 @@ TEST_CASE("nothing starves while one tile keeps changing") {
     CHECK(seen.size() > 1);
 }
 
-TEST_CASE("the pen's tiles go first, wherever the sweep happens to be") {
+TEST_CASE("the pen's tile rides on top of the budget, not inside it") {
     TileScheduler s;
     s.configure(10, 10);
     // Bottom-right corner, a long way round the lap from the cursor at 0.
-    s.set_focus(digitiz::core::Recti{8, 9, 2, 1});
+    s.set_focus(98);
 
     std::vector<std::uint16_t> picked;
     s.select(4, picked);
-    REQUIRE(picked.size() == 4);
+
+    // Four sweep tiles AND the pen's, not three sweep tiles and the pen's.
+    // Inside the budget the two would take from each other, and the rest of
+    // the screen would converge slower exactly while it is being drawn on.
+    REQUIRE(picked.size() == 5);
 
     const std::vector<int> got = as_ints(picked);
     CHECK(got[0] == 98);
-    CHECK(got[1] == 99);
-    // The rest of the budget goes to the sweep, which is still at the start.
-    CHECK(got[2] == 0);
-    CHECK(got[3] == 1);
+    CHECK(got[1] == 0);
+    CHECK(got[2] == 1);
+    CHECK(got[3] == 2);
+    CHECK(got[4] == 3);
 }
 
-TEST_CASE("a clean focus costs nothing") {
+TEST_CASE("the pen's tile goes even when it is clean") {
     TileScheduler s;
     s.configure(4, 4);
-    take(s, 16);
+    take(s, 16); // everything sent, nothing dirty
+    REQUIRE(s.dirty_count() == 0);
 
-    s.set_focus(digitiz::core::Recti{0, 0, 2, 2});
-    s.mark_dirty(15);
-
-    // Spending budget on tiles with nothing to say would come straight out of
-    // the tiles that have something to say.
+    s.set_focus(5);
     std::vector<std::uint16_t> picked;
     s.select(4, picked);
-    CHECK(as_ints(picked) == std::vector<int>{15});
+
+    // The stroke is landing there. "Clean" only means the guest has what that
+    // tile looked like a moment ago, which is precisely what is out of date.
+    CHECK(as_ints(picked) == std::vector<int>{5});
 }
 
-TEST_CASE("focus is clamped by the grid, not trusted") {
+TEST_CASE("the pen does not drag the sweep along with it") {
+    TileScheduler s;
+    s.configure(10, 10);
+    s.set_focus(98);
+
+    std::vector<std::uint16_t> picked;
+    s.select(2, picked);
+    s.mark_sent(picked);
+
+    // The cursor must sit just past the two sweep tiles, not past tile 98.
+    // Otherwise one touch in the corner would declare ninety-odd dirty tiles
+    // skipped, and they would stay wrong until the next lap.
+    s.select(2, picked);
+    const std::vector<int> got = as_ints(picked);
+    REQUIRE(got.size() == 3);
+    CHECK(got[0] == 98);
+    CHECK(got[1] == 2);
+    CHECK(got[2] == 3);
+}
+
+TEST_CASE("a focus off the grid is no focus") {
     TileScheduler s;
     s.configure(3, 3);
-    s.set_focus(digitiz::core::Recti{-5, -5, 100, 100});
+    s.set_focus(99);
+    CHECK(s.focus() == -1);
+
+    s.set_focus(-1);
+    CHECK(s.focus() == -1);
 
     std::vector<std::uint16_t> picked;
     s.select(9, picked);
