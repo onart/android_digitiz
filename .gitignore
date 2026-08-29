@@ -9,6 +9,7 @@ _deps/
 /guest/build/
 /guest/app/build/
 /guest/local.properties
+/guest/keystore.properties
 /guest/.cxx/
 /guest/app/.cxx/
 *.apk

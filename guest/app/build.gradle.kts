@@ -1,5 +1,22 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
+}
+
+// Release signing, if there is a key to sign with.
+//
+// The keystore and its passwords are deliberately not in the repository. Put
+// them in guest/keystore.properties, which .gitignore keeps out; without that
+// file the release build simply comes out unsigned and everything else still
+// works, so a clone of this repository builds for anyone.
+//
+// See keystore.properties.example for the four keys it wants.
+val keystoreProperties = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) {
+        f.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -50,10 +67,25 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        if (keystoreProperties.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Unsigned when there is no key. An unsigned APK will not install,
+            // which is the honest outcome -- better than silently shipping one
+            // signed with the debug key, which is what happens if you forget.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 }

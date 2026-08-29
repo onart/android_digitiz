@@ -143,6 +143,18 @@ specific language governing permissions and limitations under the License.
 
 ## 이 프로젝트 자체의 라이선스
 
-**아직 정해지지 않았습니다.** 라이선스 파일이 없는 저장소는 기본적으로 모든 권리가
-저작자에게 유보된 것으로 취급되므로, 배포할 계획이라면 루트에 `LICENSE` 를 두는
-편이 낫습니다.
+**Apache License 2.0** 입니다. 전문은 루트의 `LICENSE` 에 있습니다.
+
+    Copyright 2026 onart
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.

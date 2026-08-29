@@ -275,3 +275,20 @@ docs/     설계 문서
 
 `common/` 은 데스크톱 CMake와 안드로이드 CMake 양쪽에서 그대로 빌드된다.
 그래서 저기에는 `<windows.h>` 도, `<android/*.h>` 도, 소켓 API도 들어가지 않는다.
+
+## 라이선스
+
+이 프로젝트는 **Apache License 2.0** 입니다. 전문은 [LICENSE](LICENSE) 에 있습니다.
+
+사용한 오픈소스와 그 라이선스는 [THIRD-PARTY.md](THIRD-PARTY.md) 에 정리돼 있고,
+호스트는 **정보** 패널에서, 게스트는 서랍의 제목을 눌러서 같은 내용을 볼 수 있습니다.
+
+## 릴리스 서명 (Android)
+
+`guest/keystore.properties` 가 있으면 `assembleRelease` 가 그 키로 서명하고,
+없으면 `app-release-unsigned.apk` 가 나옵니다. 서명되지 않은 APK는 설치되지
+않는데, 그게 정직한 결과입니다 — 디버그 키로 조용히 서명해 내보내는 것보다 낫습니다.
+
+키는 저장소에 넣지 않습니다. `guest/keystore.properties.example` 을 복사해서 채우고,
+`.jks` 파일 자체도 저장소 밖에 두고 백업하세요. **잃어버리면 같은 앱으로 다시는
+업데이트할 수 없습니다.**
