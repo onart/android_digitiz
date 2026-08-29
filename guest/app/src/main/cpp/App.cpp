@@ -293,6 +293,9 @@ void App::frame() {
                          buttons_.buttons()[static_cast<std::size_t>(held)].label);
     }
     apply_button_events();
+    if (menu_.take_about_request()) {
+        show_licenses(app_->activity);
+    }
     if (menu_.take_rotate_request()) {
         // The activity owns this, not us: rotating what we draw would leave
         // the system bars and the touch mapping on the old side.

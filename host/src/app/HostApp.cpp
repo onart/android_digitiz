@@ -803,7 +803,26 @@ void HostApp::draw_status_panel() {
 
     draw_selftest_panel();
 
+    draw_about_panel();
+
     ImGui::End();
+}
+
+// Attribution has to be somewhere the user can reach, and this program has no
+// other place to put it. The full texts ship beside the executable in
+// THIRD-PARTY.md; this is the summary that says what is in the binary.
+void HostApp::draw_about_panel() {
+    if (!ImGui::CollapsingHeader("정보")) {
+        return;
+    }
+    ImGui::Text("Wired Phone Digitizer %s", DIGITIZ_VERSION);
+    ImGui::Spacing();
+    ImGui::TextDisabled("포함된 오픈소스");
+    ImGui::BulletText("Dear ImGui v1.91.5 — MIT");
+    ImGui::BulletText("GLFW 3.4 — zlib/libpng");
+    ImGui::BulletText("Zstandard v1.5.6 — BSD 3-Clause");
+    ImGui::Spacing();
+    ImGui::TextDisabled("전문은 배포물의 THIRD-PARTY.md 에 있습니다.");
 }
 
 void HostApp::draw_screen_panel() {

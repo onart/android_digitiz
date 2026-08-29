@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
                      static_cast<int>(text.size()), text.data());
     });
 
-    DZ_INFO("digitiz host starting");
+    DZ_INFO("Wired Phone Digitizer %s (host)", DIGITIZ_VERSION);
 
     if (frame_test) {
         return digitiz::host::run_frame_probe(6, 2, "frame_probe.bmp") ? 0 : 1;
@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
     }
 
     digitiz::host::ImGuiShell shell;
-    if (!shell.init("Digitiz Host", 900, 700)) {
+    if (!shell.init("Wired Phone Digitizer " DIGITIZ_VERSION, 900, 700)) {
         return 1;
     }
 

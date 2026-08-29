@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- For launchers older than the adaptive icon, which minSdk 24 still allows.
+     Same drawing with the background baked in, since there are no two layers
+     to hand over. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#1C1F25"
+        android:pathData="M0,0 h108 v108 h-108 z" />
+
+    <path
+        android:fillColor="#4C9E75"
+        android:pathData="M41,31 h26 a6,6 0 0 1 6,6 v24 a6,6 0 0 1 -6,6 h-26 a6,6 0 0 1 -6,-6 v-24 a6,6 0 0 1 6,-6 z" />
+
+    <path
+        android:fillColor="#4C9E75"
+        android:pathData="M48,67 h12 a3,3 0 0 1 3,3 v7 a3,3 0 0 1 -3,3 h-12 a3,3 0 0 1 -3,-3 v-7 a3,3 0 0 1 3,-3 z" />
+</vector>

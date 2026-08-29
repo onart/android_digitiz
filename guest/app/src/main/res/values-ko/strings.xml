@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="licenses_title">오픈소스 라이선스</string>
+    <string name="licenses_close">닫기</string>
     <string name="press_back_again">한 번 더 누르면 종료합니다</string>
 
     <string name="menu_input_mode">입력 모드</string>

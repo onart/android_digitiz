@@ -142,6 +142,26 @@ void show_button_editor(GameActivity* activity, int index, int kind, const std::
     env->DeleteLocalRef(cls);
 }
 
+void show_licenses(GameActivity* activity) {
+    ScopedEnv scoped(activity != nullptr ? activity->vm : nullptr);
+    JNIEnv* env = activity_env(activity, scoped);
+    if (env == nullptr) {
+        return;
+    }
+
+    jclass cls = env->GetObjectClass(activity->javaGameActivity);
+    jmethodID method = env->GetMethodID(cls, "showLicenses", "()V");
+    if (method == nullptr) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls);
+        DZ_WARN("licenses: MainActivity has no showLicenses()");
+        return;
+    }
+    env->CallVoidMethod(activity->javaGameActivity, method);
+    report_exception(env);
+    env->DeleteLocalRef(cls);
+}
+
 void show_button_menu(GameActivity* activity, int index, const std::string& label) {
     ScopedEnv scoped(activity != nullptr ? activity->vm : nullptr);
     JNIEnv* env = activity_env(activity, scoped);

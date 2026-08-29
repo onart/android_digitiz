@@ -265,6 +265,16 @@ public class MainActivity extends GameActivity {
         runOnUiThread(() -> buildEditor(index, kind, label, x, y, w, h, modifiers, key));
     }
 
+    /** Called from native when the drawer's title is tapped. */
+    @SuppressWarnings("unused")
+    public void showLicenses() {
+        runOnUiThread(() -> new AlertDialog.Builder(this)
+                .setTitle(R.string.licenses_title)
+                .setMessage(R.string.licenses_body)
+                .setPositiveButton(R.string.licenses_close, null)
+                .show());
+    }
+
     /** Called from native when a button is held down. */
     @SuppressWarnings("unused")
     public void showButtonMenu(final int index, final String label) {

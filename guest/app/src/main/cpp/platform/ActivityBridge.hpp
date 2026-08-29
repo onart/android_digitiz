@@ -36,6 +36,10 @@ void show_button_editor(GameActivity* activity, int index, int kind, const std::
 
 void show_button_menu(GameActivity* activity, int index, const std::string& label);
 
+// Attribution has to be reachable from inside the app, and a drawer with no
+// room for another row leaves the title as the place to put it.
+void show_licenses(GameActivity* activity);
+
 // Opens the preset menu. `names` is what to list, `current` which one is in
 // use, and `active_window` the program the bind entry would attach to.
 void show_preset_menu(GameActivity* activity, const std::vector<std::string>& names, int current,

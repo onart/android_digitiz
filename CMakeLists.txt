@@ -13,6 +13,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(DIGITIZ_BUILD_HOST  "Build the PC host application" ON)
 option(DIGITIZ_BUILD_TESTS "Build common/ unit tests"      ON)
 
+# One place for the version. The Android side carries its own in build.gradle.kts
+# and the two have to be moved together, which is what the release checklist in
+# README is for.
+add_compile_definitions(DIGITIZ_VERSION="${PROJECT_VERSION}")
+
 if(MSVC)
     add_compile_options(/W4 /permissive- /utf-8 /Zc:__cplusplus)
 else()

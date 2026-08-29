@@ -76,6 +76,12 @@ bool SideMenu::take_stylus_change() noexcept {
     return changed;
 }
 
+bool SideMenu::take_about_request() noexcept {
+    const bool asked = about_requested_;
+    about_requested_ = false;
+    return asked;
+}
+
 bool SideMenu::take_rotate_request() noexcept {
     const bool asked = rotate_requested_;
     rotate_requested_ = false;
@@ -191,6 +197,14 @@ Rect SideMenu::panel_rect() const {
 // within a row's height of the bottom on a 720px screen, and this is a
 // one-shot action with no state to display, which is what a header control is
 // for.
+// The title's own area, so tapping the name opens the licences. Nothing else
+// wants that space and a drawer this full has nowhere else to offer.
+Rect SideMenu::title_rect() const {
+    const Rect panel = panel_rect();
+    const float pad = 16.0f * density_;
+    return Rect{panel.x + pad, 8.0f * density_, 90.0f * density_, 40.0f * density_};
+}
+
 Rect SideMenu::rotate_button() const {
     const Rect panel = panel_rect();
     const float pad = 16.0f * density_;
@@ -273,7 +287,9 @@ bool SideMenu::hit_test(core::Vec2 p) {
         // The whole row is the target, not just the control on its right: a
         // 36dp pill is a small thing to hit with a thumb.
         if (progress_ > 0.9f) {
-            if (rotate_button().contains(p)) {
+            if (title_rect().contains(p)) {
+                about_requested_ = true;
+            } else if (rotate_button().contains(p)) {
                 rotate_requested_ = true;
             } else if (strip_button().contains(p)) {
                 strip_vertical_ = !strip_vertical_;

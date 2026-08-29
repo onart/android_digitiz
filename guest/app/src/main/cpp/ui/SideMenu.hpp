@@ -55,6 +55,11 @@ public:
     // asking it back would only be a second copy that can disagree.
     bool take_rotate_request() noexcept;
 
+    // True once, when the title was tapped. It is the only thing in the
+    // drawer with room to spare, and the licences have to be reachable from
+    // somewhere inside the app.
+    bool take_about_request() noexcept;
+
     // Which way the custom button strip runs. Seeded from persisted settings,
     // flipped by the header button beside the rotate one.
     void set_strip_vertical(bool on) noexcept { strip_vertical_ = on; }
@@ -98,6 +103,7 @@ private:
     Rect stylus_button() const;
     Rect auto_launch_row() const;
     Rect auto_launch_switch() const;
+    Rect title_rect() const;
     Rect rotate_button() const;
     Rect strip_button() const;
     Rect screen_button() const;
@@ -138,6 +144,7 @@ private:
     bool auto_launch_changed_ = false;
 
     bool rotate_requested_ = false;
+    bool about_requested_ = false;
 
     bool strip_vertical_ = false;
     bool strip_changed_ = false;

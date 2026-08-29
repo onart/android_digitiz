@@ -68,6 +68,7 @@ private:
     void draw_smoothing_panel();
     void draw_screen_panel();
     void draw_selftest_panel();
+    void draw_about_panel();
     void draw_log_panel();
 
     void move_cursor_to_center();
