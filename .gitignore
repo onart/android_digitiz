@@ -33,3 +33,4 @@ imgui.ini
 capture_probe.bmp
 frame_probe.bmp
 probe*.log
+/dist/

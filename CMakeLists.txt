@@ -20,6 +20,11 @@ add_compile_definitions(DIGITIZ_VERSION="${PROJECT_VERSION}")
 
 if(MSVC)
     add_compile_options(/W4 /permissive- /utf-8 /Zc:__cplusplus)
+    # Static CRT, so the released executable runs on a machine that has never
+    # had Visual Studio on it. Everything it links is built from source here,
+    # so there is nothing to disagree with about the choice, and "install the
+    # VC++ redistributable first" is a poor first impression.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
