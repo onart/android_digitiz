@@ -143,6 +143,15 @@ private:
     std::int32_t pen_y_ = 0;
     std::chrono::steady_clock::time_point last_frame_{};
 
+    // Rolling, reported once a second. The budget exists to bound what the
+    // link carries, so what it actually carries should be visible without
+    // opening the window and reading a panel.
+    std::chrono::steady_clock::time_point reported_{};
+    std::uint64_t reported_bytes_ = 0;
+    std::uint64_t reported_tiles_ = 0;
+    std::uint64_t reported_frames_ = 0;
+    std::uint64_t reported_busy_ = 0;
+
     // Pixels for the tiles of one batch, read back just before they are
     // encoded. This is the GPU-to-CPU readback the design exists to avoid, and
     // the first thing to replace with a compute shader that compresses in

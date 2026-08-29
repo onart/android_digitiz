@@ -413,6 +413,24 @@ void FrameSender::tick() {
     }
     last_frame_ = now;
     send_batch();
+
+    if (now - reported_ > std::chrono::seconds(1)) {
+        if (reported_.time_since_epoch().count() != 0) {
+            const double seconds =
+                std::chrono::duration<double>(now - reported_).count();
+            DZ_DEBUG("screen: %.0f KiB/s on the wire, %.0f batch(es)/s, %.0f tile(s)/s, "
+                     "%llu skipped while busy",
+                     (stats_.bytes - reported_bytes_) / 1024.0 / seconds,
+                     (stats_.frames - reported_frames_) / seconds,
+                     (stats_.tiles - reported_tiles_) / seconds,
+                     static_cast<unsigned long long>(stats_.skipped_busy - reported_busy_));
+        }
+        reported_ = now;
+        reported_bytes_ = stats_.bytes;
+        reported_tiles_ = stats_.tiles;
+        reported_frames_ = stats_.frames;
+        reported_busy_ = stats_.skipped_busy;
+    }
 }
 
 } // namespace digitiz::host
