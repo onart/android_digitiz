@@ -88,11 +88,7 @@ public:
     // Where the pen is on the desktop, and whether it is touching. Kept as a
     // point rather than a tile number because a viewport change renumbers the
     // tiles, and a stale number would paint the wrong square.
-    void set_pen(bool down, std::int32_t pc_x, std::int32_t pc_y) noexcept {
-        pen_down_ = down;
-        pen_x_ = pc_x;
-        pen_y_ = pc_y;
-    }
+    void set_pen(bool down, std::int32_t pc_x, std::int32_t pc_y) noexcept;
 
 private:
     bool ensure_source();
@@ -119,6 +115,10 @@ private:
     // rather than on how fast the rest catches up, which is the right way
     // round for drawing; raise it when the whole picture matters more.
     int budget_tiles_ = 1;
+    // Dirt has been marked that the pixel buffer does not yet contain. Until
+    // it clears, nothing may be sent from that buffer -- sending stale pixels
+    // and marking the tile clean would leave it wrong for good.
+    bool pixels_stale_ = true;
     bool pen_down_ = false;
     int logged_pen_ = -1;
     std::int32_t pen_x_ = 0;

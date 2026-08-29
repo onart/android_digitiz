@@ -58,6 +58,7 @@ void FrameSender::set_viewport(const proto::ViewportReq& request) {
         geometry_ready_ = true;
         scheduler_.configure(fresh.cols(), fresh.rows());
         region_valid_ = false;
+        pixels_stale_ = true;
         DZ_INFO("screen: %dx%d at (%d, %d) -> %dx%d, %d px tiles (%d), %u fps", fresh.region.w,
                 fresh.region.h, fresh.region.x, fresh.region.y, fresh.out_w, fresh.out_h,
                 fresh.tile, fresh.tile_count(), request.fps);
@@ -68,6 +69,7 @@ void FrameSender::stop() {
     streaming_ = false;
     geometry_ready_ = false;
     region_valid_ = false;
+    pixels_stale_ = true;
     if (source_) {
         source_->stop();
         source_.reset();
@@ -111,14 +113,22 @@ bool FrameSender::capture() {
 
     if (update.full || update.dirty.empty()) {
         scheduler_.mark_all_dirty();
+        pixels_stale_ = true;
     } else {
         for (const core::Recti& dirty : update.dirty) {
-            scheduler_.mark_dirty_rect(geometry_.tiles_touching(dirty));
+            const core::Recti tiles = geometry_.tiles_touching(dirty);
+            if (tiles.w > 0 && tiles.h > 0) {
+                // Something inside the served region moved, so the pixels we
+                // are holding are no longer what it looks like.
+                pixels_stale_ = true;
+            }
+            scheduler_.mark_dirty_rect(tiles);
         }
     }
     // Move rects would be handled here, if Windows ever produced any.
     for (const MoveRect& move : update.moves) {
         scheduler_.mark_dirty_rect(geometry_.tiles_touching(move.to));
+        pixels_stale_ = true;
     }
     return true;
 }
@@ -177,6 +187,15 @@ bool FrameSender::gather_tile(int index, int& w, int& h) {
         }
     }
     return true;
+}
+
+void FrameSender::set_pen(bool down, std::int32_t pc_x, std::int32_t pc_y) noexcept {
+    if (down != pen_down_) {
+        DZ_DEBUG("screen: pen %s at (%d, %d)", down ? "down" : "up", pc_x, pc_y);
+    }
+    pen_down_ = down;
+    pen_x_ = pc_x;
+    pen_y_ = pc_y;
 }
 
 int FrameSender::pen_tile() const noexcept {
@@ -288,16 +307,37 @@ void FrameSender::tick() {
         return;
     }
 
-    // The pixels can only be read while this tick's frame is still held.
     const bool holding = capture();
+
+    // The readback rides on the frame arriving, not on the clock, because the
+    // pixels can only be read while the frame is held and a still screen
+    // produces no more frames. Gating it on the clock instead stranded dirt:
+    // a change that the budget could not finish in one tick left the rest of
+    // its tiles marked, and if the screen then stopped there was never
+    // another frame to read them out of. They stayed wrong until something
+    // else happened to move.
+    //
+    // One readback for the whole region, then tiles are cut out of it. This is
+    // the expensive part and the one a compute shader replaces.
+    if (holding && pixels_stale_ && scheduler_.anything_dirty()) {
+        if (source_->read(geometry_.region, region_pixels_, region_stride_)) {
+            region_valid_ = true;
+            pixels_stale_ = false;
+        }
+    }
+    if (!region_valid_) {
+        return; // nothing has ever been read for this region
+    }
 
     const auto now = std::chrono::steady_clock::now();
     const auto interval = std::chrono::milliseconds(1000 / std::max<int>(request_.fps, 1));
     if (now - last_frame_ < interval) {
         return;
     }
-    if (!scheduler_.anything_dirty()) {
-        return; // a still screen costs nothing
+    // A still screen costs nothing -- except the tile under the pen, which is
+    // owed every batch whether or not it changed.
+    if (!scheduler_.anything_dirty() && pen_tile() < 0) {
+        return;
     }
     if (ready_ && !ready_()) {
         // The previous batch has not drained. Sending another would grow a
@@ -305,20 +345,11 @@ void FrameSender::tick() {
         ++stats_.skipped_busy;
         return;
     }
-    if (!holding) {
-        // Nothing acquired this tick, so there is nothing to copy out of. The
-        // dirt stays owed and the next tick with a frame sends it.
-        return;
-    }
     last_frame_ = now;
 
-    // One readback for the whole region, then tiles are cut out of it. This is
-    // the expensive part and the one a compute shader replaces.
-    if (!source_->read(geometry_.region, region_pixels_, region_stride_)) {
-        return;
-    }
-    region_valid_ = true;
-
+    // Sending is allowed without a frame in hand. The buffer is only used once
+    // it holds everything that has been marked, so "no new frame" means "the
+    // screen has not moved since this was read", which makes it current.
     send_batch();
 }
 
