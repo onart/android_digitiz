@@ -114,13 +114,28 @@ void HostApp::tick() {
         frames_.set_viewport(request);
     }
 
-    // Taken from the cursor rather than from the pointer message, because by
-    // here the pipeline has resolved relative and window-relative coordinates
-    // and put the curve through the smoother. This is where the stroke landed,
-    // which is the square worth repainting.
+    // The pointer's own resolved position, not the mouse cursor's.
+    //
+    // The cursor was the wrong source: it only follows the pen while injection
+    // is on, and with injection off it sits wherever a hand last left it. The
+    // sender would then repaint that square every batch for as long as the pen
+    // was down, and the square the pen is actually on never at all.
+    //
+    // The pipeline's last point is past the relative and window-relative
+    // resolution and past the screen check, so it is a real desktop point. It
+    // only advances while the pipeline is enabled, which is the same condition
+    // under which there is a stroke landing somewhere to keep fresh.
     std::int32_t pen_x = 0;
     std::int32_t pen_y = 0;
-    const bool have_pen = pen_down && injector_ && injector_->cursor_pos(pen_x, pen_y);
+    bool have_pen = false;
+    if (pen_down) {
+        std::lock_guard lock(pipeline_mutex_);
+        if (pipeline_ && pipeline_->enabled()) {
+            pen_x = pipeline_->last_x();
+            pen_y = pipeline_->last_y();
+            have_pen = true;
+        }
+    }
     frames_.set_pen(have_pen, pen_x, pen_y);
 
     frames_.tick();
