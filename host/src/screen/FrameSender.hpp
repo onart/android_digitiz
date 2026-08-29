@@ -40,6 +40,7 @@ public:
         std::uint64_t skipped_busy = 0; // the previous batch had not drained
         std::uint64_t captures = 0;
         double last_encode_ms = 0.0;
+        std::uint64_t encode_us = 0; // cumulative, the same interval as above
 
         // Where the time goes, cumulative in microseconds. Split because the
         // three are charged differently: the readback is once per batch and
@@ -96,6 +97,16 @@ public:
     void set_budget_tiles(int tiles) noexcept { budget_tiles_ = tiles > 0 ? tiles : 1; }
     int budget_tiles() const noexcept { return budget_tiles_; }
 
+    // What the budget looks like it should be on this machine, or 0 before
+    // there is enough to say.
+    //
+    // Everything measured about the budget was measured here, on one PC, one
+    // GPU and one phone, and none of those numbers travel. A slower encoder, a
+    // slower link or a phone that cannot keep up all show in what a batch
+    // actually costs and whether it drains, so the recommendation is steered
+    // by those rather than by a model of them.
+    int recommended_tiles() const noexcept { return recommended_; }
+
     // Where the pen is on the desktop, and whether it is touching. Kept as a
     // point rather than a tile number because a viewport change renumbers the
     // tiles, and a stale number would paint the wrong square.
@@ -107,6 +118,8 @@ private:
     // time its pixels can be read.
     bool capture();
     void send_batch();
+    // Leans the recommendation one way or the other from the last second.
+    void update_recommendation(std::uint64_t batches, std::uint64_t busy);
     // Reads the pixels the selected tiles are cut from -- their bounding box,
     // not the whole region. Sets `read_rect_` to what was actually read.
     bool read_selection();
@@ -151,6 +164,8 @@ private:
     std::uint64_t reported_tiles_ = 0;
     std::uint64_t reported_frames_ = 0;
     std::uint64_t reported_busy_ = 0;
+    std::uint64_t reported_encode_us_ = 0;
+    int recommended_ = 0;
 
     // Pixels for the tiles of one batch, read back just before they are
     // encoded. This is the GPU-to-CPU readback the design exists to avoid, and

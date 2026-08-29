@@ -249,6 +249,49 @@ bool FrameSender::read_selection() {
     return true;
 }
 
+void FrameSender::update_recommendation(std::uint64_t batches, std::uint64_t busy) {
+    if (batches < 4) {
+        return; // not enough of a second to say anything about
+    }
+
+    if (busy > 0) {
+        // Batches are not draining. That is the link or the phone, not this
+        // side, and the only lever here is to ask for less of it. Backing off
+        // faster than it climbs, because being behind costs a picture that is
+        // out of date while being ahead only costs some idle link.
+        recommended_ = std::max(budget_tiles_ * 2 / 3, 1);
+        return;
+    }
+
+    // Only raise it on evidence. If the batches were not full, the budget was
+    // not what limited them -- there was simply not that much to send -- and
+    // what they cost says nothing about what a full one would cost. Holding
+    // the last answer is better than inventing one, and on a still screen
+    // there is no answer to give.
+    const double per_batch =
+        static_cast<double>(stats_.tiles - reported_tiles_) / static_cast<double>(batches);
+    if (per_batch < budget_tiles_ * 0.9) {
+        return;
+    }
+
+    // A quarter of the frame interval. The host draws its own window on this
+    // thread and the pointer path shares the machine, so a batch that fills
+    // the tick would be a batch that starves them.
+    const double target_us = 1000000.0 / std::max<int>(request_.fps, 1) / 4.0;
+    const double actual_us =
+        static_cast<double>(stats_.encode_us - reported_encode_us_) / static_cast<double>(batches);
+    if (actual_us <= 0.0) {
+        return;
+    }
+
+    // Steered rather than solved: no model of what is fixed and what is per
+    // tile, just the cost that was actually paid and which way to lean. It
+    // converges over a few seconds and re-converges when the machine or the
+    // picture changes, which a fitted constant would not.
+    const double scale = std::clamp(target_us / actual_us, 0.5, 2.0);
+    recommended_ = std::clamp(static_cast<int>(std::lround(budget_tiles_ * scale)), 1, 256);
+}
+
 void FrameSender::send_batch() {
     // Resolved here rather than when the pointer arrived, so that a viewport
     // change between the two cannot leave a tile number meaning a different
@@ -377,6 +420,9 @@ void FrameSender::send_batch() {
     stats_.tiles += sent.size();
     stats_.raw_bytes += payload_.size();
     stats_.bytes += n;
+    stats_.encode_us += static_cast<std::uint64_t>(
+        std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started)
+            .count());
     stats_.last_encode_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started)
             .count();
@@ -415,21 +461,23 @@ void FrameSender::tick() {
     send_batch();
 
     if (now - reported_ > std::chrono::seconds(1)) {
+        const std::uint64_t batches = stats_.frames - reported_frames_;
+        const std::uint64_t busy = stats_.skipped_busy - reported_busy_;
         if (reported_.time_since_epoch().count() != 0) {
-            const double seconds =
-                std::chrono::duration<double>(now - reported_).count();
+            const double seconds = std::chrono::duration<double>(now - reported_).count();
+            update_recommendation(batches, busy);
             DZ_DEBUG("screen: %.0f KiB/s on the wire, %.0f batch(es)/s, %.0f tile(s)/s, "
-                     "%llu skipped while busy",
+                     "%llu skipped while busy, budget %d, suggested %d",
                      (stats_.bytes - reported_bytes_) / 1024.0 / seconds,
-                     (stats_.frames - reported_frames_) / seconds,
-                     (stats_.tiles - reported_tiles_) / seconds,
-                     static_cast<unsigned long long>(stats_.skipped_busy - reported_busy_));
+                     batches / seconds, (stats_.tiles - reported_tiles_) / seconds,
+                     static_cast<unsigned long long>(busy), budget_tiles_, recommended_);
         }
         reported_ = now;
         reported_bytes_ = stats_.bytes;
         reported_tiles_ = stats_.tiles;
         reported_frames_ = stats_.frames;
         reported_busy_ = stats_.skipped_busy;
+        reported_encode_us_ = stats_.encode_us;
     }
 }
 

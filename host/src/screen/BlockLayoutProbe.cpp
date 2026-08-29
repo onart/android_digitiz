@@ -162,6 +162,14 @@ bool run_block_layout_probe(int divisor) {
         return false;
     }
 
+    // And the arrangement that was argued against without ever being measured:
+    // every tile its own zstd stream. This is the claim that the batch has to
+    // be the compression unit, put to the test.
+    std::size_t per_tile_total = 0;
+    for (const std::vector<std::uint8_t>& t : per_tile) {
+        per_tile_total += compressed_size(t);
+    }
+
     const std::size_t a = compressed_size(tile_major);
     const std::size_t b = compressed_size(row_major);
     if (a == 0 || b == 0) {
@@ -176,6 +184,11 @@ bool run_block_layout_probe(int divisor) {
             static_cast<double>(row_major.size()) / b);
     DZ_INFO("layout probe: row order is %+.1f%% of the bytes",
             (static_cast<double>(b) - static_cast<double>(a)) * 100.0 / static_cast<double>(a));
+    DZ_INFO("layout probe: one stream a tile %.1f KiB (%.1fx), which is %+.1f%%",
+            per_tile_total / 1024.0,
+            static_cast<double>(tile_major.size()) / static_cast<double>(per_tile_total),
+            (static_cast<double>(per_tile_total) - static_cast<double>(a)) * 100.0 /
+                static_cast<double>(a));
 
     source->stop();
     return true;

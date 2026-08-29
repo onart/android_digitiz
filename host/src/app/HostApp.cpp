@@ -846,9 +846,22 @@ void HostApp::draw_screen_panel() {
     }
 
     int budget = frames_.budget_tiles();
-    if (ImGui::SliderInt("Sweep tiles per batch", &budget, 1, 64)) {
+    if (ImGui::SliderInt("Sweep tiles per batch", &budget, 1, 256)) {
         frames_.set_budget_tiles(budget);
         settings_.set_sweep_tiles(budget);
+    }
+    if (const int suggested = frames_.recommended_tiles(); suggested > 0) {
+        ImGui::Text("Suggested: %d", suggested);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Use")) {
+            frames_.set_budget_tiles(suggested);
+            settings_.set_sweep_tiles(suggested);
+        }
+        ImGui::SetItemTooltip(
+            "Steered from what a batch actually cost here over the last second, and from "
+            "whether the last one had drained before the next was due.\n"
+            "Everything else about this number was measured on one PC and one phone; this "
+            "is the part that is measured on yours.");
     }
     ImGui::SetItemTooltip(
         "Tiles one batch spends on the sweep. The tile under the pen is sent on top of "
