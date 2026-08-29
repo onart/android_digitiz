@@ -38,6 +38,8 @@ App::App(android_app* app)
     menu_.set_strip_vertical(settings_.strip_vertical());
     menu_.set_screen_enabled(settings_.screen_enabled());
     screen_enabled_ = settings_.screen_enabled();
+    menu_.set_stylus_only(settings_.stylus_only());
+    router_.set_stylus_only(settings_.stylus_only());
     apply_throttle();
 
     strip_.set_store(&buttons_);
@@ -295,6 +297,10 @@ void App::frame() {
         // The activity owns this, not us: rotating what we draw would leave
         // the system bars and the touch mapping on the old side.
         flip_orientation(app_->activity);
+    }
+    if (menu_.take_stylus_change()) {
+        router_.set_stylus_only(menu_.stylus_only());
+        settings_.set_stylus_only(menu_.stylus_only());
     }
     if (menu_.take_screen_change()) {
         screen_enabled_ = menu_.screen_enabled();

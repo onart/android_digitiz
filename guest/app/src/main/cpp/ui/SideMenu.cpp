@@ -70,6 +70,12 @@ bool SideMenu::take_screen_change() noexcept {
     return changed;
 }
 
+bool SideMenu::take_stylus_change() noexcept {
+    const bool changed = stylus_changed_;
+    stylus_changed_ = false;
+    return changed;
+}
+
 bool SideMenu::take_rotate_request() noexcept {
     const bool asked = rotate_requested_;
     rotate_requested_ = false;
@@ -224,6 +230,16 @@ Rect SideMenu::mode_value_pill() const {
     return Rect{row.x + row.w - w - 10.0f * density_, row.y + (row.h - h) * 0.5f, w, h};
 }
 
+// Beside the mode pill, inside the same row. There is room there and no room
+// for another row, and the two settings answer the same question anyway: what
+// happens when something touches the glass.
+Rect SideMenu::stylus_button() const {
+    const Rect pill = mode_value_pill();
+    const float w = 40.0f * density_;
+    const float h = 30.0f * density_;
+    return Rect{pill.x - 8.0f * density_ - w, pill.y + (pill.h - h) * 0.5f, w, h};
+}
+
 Rect SideMenu::auto_launch_row() const {
     const Rect above = mode_row();
     return Rect{above.x, above.y + above.h + 12.0f * density_, above.w, above.h};
@@ -265,6 +281,9 @@ bool SideMenu::hit_test(core::Vec2 p) {
             } else if (screen_button().contains(p)) {
                 screen_enabled_ = !screen_enabled_;
                 screen_changed_ = true;
+            } else if (stylus_button().contains(p)) {
+                stylus_only_ = !stylus_only_;
+                stylus_changed_ = true;
             } else if (mode_row().contains(p)) {
                 // Few enough modes that cycling beats a picker.
                 mode_ = next_mode(mode_);
@@ -348,6 +367,33 @@ void SideMenu::draw_slider_row(UiRenderer& ui, int index, float alpha) const {
                          knob, knob},
                     knob * 0.5f,
                     off ? Color{0.62f, 0.66f, 0.74f, alpha} : Color{0.96f, 0.97f, 1.0f, alpha});
+}
+
+// A pen standing on its tip. Only rounded rectangles are available here, so
+// the nib is a small square under the body rather than a point -- a diagonal
+// is not something this renderer can draw, as the earlier attempt at a cross
+// established.
+void SideMenu::draw_stylus_button(UiRenderer& ui, float alpha) const {
+    const Rect button = stylus_button();
+    ui.rounded_rect(button, 9.0f * density_,
+                    stylus_only_ ? Color{0.24f, 0.34f, 0.29f, 0.95f * alpha}
+                                 : Color{0.16f, 0.17f, 0.21f, 0.9f * alpha});
+
+    const Color ink = stylus_only_ ? Color{kAccent.r, kAccent.g, kAccent.b, alpha}
+                                   : Color{kIdleGlyph.r, kIdleGlyph.g, kIdleGlyph.b, alpha};
+
+    // Barrel and tip, touching. Apart they read as an exclamation mark, which
+    // is what the first attempt drew and it looked like a warning.
+    const float cx = button.x + button.w * 0.5f;
+    const float cy = button.y + button.h * 0.5f;
+    const float barrel_w = 8.0f * density_;
+    const float barrel_h = 10.0f * density_;
+    const float tip_w = 4.0f * density_;
+    const float tip_h = 4.0f * density_;
+    const float top = cy - (barrel_h + tip_h) * 0.5f;
+
+    ui.rounded_rect(Rect{cx - barrel_w * 0.5f, top, barrel_w, barrel_h}, 2.0f * density_, ink);
+    ui.rounded_rect(Rect{cx - tip_w * 0.5f, top + barrel_h, tip_w, tip_h}, 1.0f * density_, ink);
 }
 
 void SideMenu::draw_mode_row(UiRenderer& ui, float alpha) const {
@@ -580,6 +626,7 @@ void SideMenu::draw(UiRenderer& ui) const {
         draw_strip_button(ui, progress_);
         draw_screen_button(ui, progress_);
         draw_mode_row(ui, progress_);
+        draw_stylus_button(ui, progress_);
         draw_auto_launch_row(ui, progress_);
         for (int i = 0; i < kSliderCount; ++i) {
             draw_slider_row(ui, i, progress_);

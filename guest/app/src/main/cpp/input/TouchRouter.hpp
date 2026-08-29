@@ -69,6 +69,12 @@ public:
 
     // Milestone 2 hooks: throttle in time and space to smooth drawn curves.
     // Zero means "send everything", which is the milestone 1 behaviour.
+    // Only a stylus draws; fingers move the view instead. Palm rejection and
+    // the arrangement every drawing program uses, in one switch. It also makes
+    // the deferred press below moot, because a finger never presses at all.
+    void set_stylus_only(bool on) noexcept { stylus_only_ = on; }
+    bool stylus_only() const noexcept { return stylus_only_; }
+
     void set_min_interval_us(std::uint64_t us) noexcept { min_interval_us_ = us; }
     void set_min_distance_px(double px) noexcept { min_distance_px_ = px; }
 
@@ -96,6 +102,13 @@ public:
     }
 
 private:
+    // Whether this pointer is allowed to draw, which is everything unless the
+    // stylus-only switch is on.
+    bool may_draw(const GameActivityMotionEvent& event, std::uint32_t index) const noexcept;
+    // Sends the press that was held back, at the point and time it really
+    // happened rather than now.
+    void flush_press();
+
     void emit(proto::PointerAction action, core::Vec2 surface, std::uint64_t t_us);
     // Sends a delta rather than a position. The first call of a gesture is
     // marked so the host re-reads the real cursor before accumulating.
@@ -120,6 +133,12 @@ private:
 
     InputMode mode_ = InputMode::Draw;
     bool stroke_active_ = false;
+    bool stylus_only_ = false;
+
+    // A press that has landed but has not been sent. See flush_press().
+    bool press_pending_ = false;
+    core::Vec2 press_p_{};
+    std::uint64_t press_us_ = 0;
     bool gesture_active_ = false;
     bool view_adjusted_ = false;
     std::int32_t stroke_pointer_id_ = -1;

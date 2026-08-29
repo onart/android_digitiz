@@ -12,6 +12,14 @@ namespace digitiz::guest {
 
 namespace {
 
+// How far a first finger may move, and how long it may stay, before its press
+// is sent. A pinch lands its second finger within a few tens of milliseconds
+// and barely moves in between, so this catches almost all of them. The hold is
+// what still lets a press-and-hold reach the PC without moving.
+constexpr double kPressSlopDp = 3.0;
+constexpr std::uint64_t kPressHoldUs = 100000;
+
+
 core::Vec2 pointer_pos(const GameActivityMotionEvent& event, std::uint32_t index) {
     return core::Vec2{
         static_cast<double>(GameActivityPointerAxes_getX(&event.pointers[index])),
@@ -119,6 +127,14 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
             break;
         }
 
+        // Stylus only: a finger moves the view rather than drawing on it.
+        // Slide mode is left alone -- it is the finger-friendly mode, and it
+        // presses nothing.
+        if (mode_ == InputMode::Draw && !may_draw(event, 0)) {
+            begin_gesture(event);
+            break;
+        }
+
         if (mode_ == InputMode::Slide) {
             // Tracked by id like a stroke: a later MOVE carries every pointer,
             // and ours is not necessarily index 0.
@@ -134,16 +150,31 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
             break;
         }
 
-        stroke_active_ = true;
+        // The press is not sent yet.
+        //
+        // A pinch begins as one finger, and by the time the second lands the
+        // press has already gone. Cancelling it releases the button, and a
+        // press followed by a release is a click -- Windows has no way to take
+        // one back, so the only fix is not to have pressed. It waits until the
+        // finger has moved, lifted, or stayed long enough to mean it; if a
+        // second finger arrives first, nothing was ever sent.
+        press_pending_ = true;
+        press_p_ = p;
+        press_us_ = t_us;
         stroke_pointer_id_ = event.pointers[0].id;
         last_sent_ = p;
         last_sent_us_ = t_us;
-        emit(proto::PointerAction::Down, p, t_us);
         break;
     }
 
     case AMOTION_EVENT_ACTION_POINTER_DOWN: {
         // Second finger: this was a pinch all along.
+        if (press_pending_) {
+            // Nothing went out, so there is nothing to take back. This is the
+            // case the deferral exists for.
+            press_pending_ = false;
+            stroke_pointer_id_ = -1;
+        }
         if (stroke_active_) {
             emit(proto::PointerAction::Cancel, last_sent_, t_us);
             stroke_active_ = false;
@@ -177,6 +208,19 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
                 }
             }
             break;
+        }
+        if (press_pending_) {
+            for (std::uint32_t i = 0; i < event.pointerCount; ++i) {
+                if (event.pointers[i].id != stroke_pointer_id_) {
+                    continue;
+                }
+                const core::Vec2 d = pointer_pos(event, i) - press_p_;
+                const double moved = std::sqrt(d.x * d.x + d.y * d.y);
+                if (moved >= kPressSlopDp * density_ || t_us - press_us_ >= kPressHoldUs) {
+                    flush_press();
+                }
+                break;
+            }
         }
         if (!stroke_active_) {
             break;
@@ -247,6 +291,12 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
             slide_end(pointer_pos(event, static_cast<std::uint32_t>(index >= 0 ? index : 0)),
                       t_us);
         }
+        if (press_pending_) {
+            // A tap: press and release in the same place, which is what a tap
+            // is supposed to be. Sent now so the order on the wire is still
+            // down and then up.
+            flush_press();
+        }
         if (stroke_active_) {
             const std::int32_t index = pointer_index_of(event.action);
             const core::Vec2 p =
@@ -281,7 +331,34 @@ void TouchRouter::handle(const GameActivityMotionEvent& event) {
     }
 }
 
+bool TouchRouter::may_draw(const GameActivityMotionEvent& event,
+                           std::uint32_t index) const noexcept {
+    if (!stylus_only_) {
+        return true;
+    }
+    if (index >= event.pointerCount) {
+        return false;
+    }
+    const std::int32_t tool = event.pointers[index].toolType;
+    return tool == AMOTION_EVENT_TOOL_TYPE_STYLUS || tool == AMOTION_EVENT_TOOL_TYPE_ERASER;
+}
+
+void TouchRouter::flush_press() {
+    if (!press_pending_) {
+        return;
+    }
+    press_pending_ = false;
+    stroke_active_ = true;
+    last_sent_ = press_p_;
+    last_sent_us_ = press_us_;
+    // The original point and time, not the ones that triggered the release:
+    // the stroke has to start where the finger touched, and the host measures
+    // its latency from this stamp.
+    emit(proto::PointerAction::Down, press_p_, press_us_);
+}
+
 void TouchRouter::cancel_stroke() {
+    press_pending_ = false;
     if (!stroke_active_) {
         return;
     }

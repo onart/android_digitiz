@@ -68,6 +68,13 @@ public:
     bool screen_enabled() const noexcept { return screen_enabled_; }
     bool take_screen_change() noexcept;
 
+    // Whether only a stylus draws. Lives on the input-mode row rather than in
+    // a row of its own: it is about what a touch does, and the rows below
+    // already reach the bottom of a short screen.
+    void set_stylus_only(bool on) noexcept { stylus_only_ = on; }
+    bool stylus_only() const noexcept { return stylus_only_; }
+    bool take_stylus_change() noexcept;
+
     // Pointer decimation while drawing, in milliseconds and dp.
     void set_throttle(int interval_ms, float distance_dp) noexcept;
     int min_interval_ms() const noexcept { return min_interval_ms_; }
@@ -88,6 +95,7 @@ private:
     // value on the right, tap anywhere on the row to change it.
     Rect mode_row() const;
     Rect mode_value_pill() const;
+    Rect stylus_button() const;
     Rect auto_launch_row() const;
     Rect auto_launch_switch() const;
     Rect rotate_button() const;
@@ -105,6 +113,7 @@ private:
 
     void draw_mode_row(UiRenderer& ui, float alpha) const;
     void draw_mode_glyph(UiRenderer& ui, float cx, float cy, Color color, float scale = 1.0f) const;
+    void draw_stylus_button(UiRenderer& ui, float alpha) const;
     void draw_auto_launch_row(UiRenderer& ui, float alpha) const;
     void draw_rotate_button(UiRenderer& ui, float alpha) const;
     void draw_strip_button(UiRenderer& ui, float alpha) const;
@@ -135,6 +144,9 @@ private:
 
     bool screen_enabled_ = false;
     bool screen_changed_ = false;
+
+    bool stylus_only_ = false;
+    bool stylus_changed_ = false;
 
     int min_interval_ms_ = 0;
     float min_distance_dp_ = 0.0f;

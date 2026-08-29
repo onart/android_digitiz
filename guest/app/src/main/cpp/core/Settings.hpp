@@ -50,6 +50,11 @@ public:
     bool screen_enabled() const noexcept { return screen_enabled_; }
     void set_screen_enabled(bool on);
 
+    // Only a stylus draws. Off by default: a phone without one would look
+    // broken, and the user who has one knows they have one.
+    bool stylus_only() const noexcept { return stylus_only_; }
+    void set_stylus_only(bool on);
+
     const std::string& path() const noexcept { return path_; }
 
 private:
@@ -63,6 +68,7 @@ private:
     bool strip_expanded_ = false;
     int strip_slots_ = 0;
     bool screen_enabled_ = false;
+    bool stylus_only_ = false;
 };
 
 } // namespace digitiz::guest
