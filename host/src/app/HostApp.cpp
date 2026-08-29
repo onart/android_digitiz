@@ -50,7 +50,7 @@ ImVec4 level_color(core::LogLevel level) {
 
 HostApp::HostApp(LogStore& log) : log_(&log) {}
 
-bool HostApp::init() {
+bool HostApp::init(const std::string& settings_dir) {
     display_ = make_display_info();
     injector_ = make_input_injector();
     // Optional: without it the guest simply never hears about focus changes,
@@ -77,6 +77,27 @@ bool HostApp::init() {
             }
         },
         [this] { return transport_ && transport_->bulk_idle(); });
+
+    // Seeded from the live objects, so the file only carries what the user
+    // changed and there is never a second copy of a default to drift from.
+    settings_.seed(enabled_, frames_.budget_tiles(), pipeline_->smoother().enabled(),
+                   pipeline_->smoother().step_px(), pipeline_->smoother().alpha());
+    settings_.load(settings_dir);
+
+    // Injection comes back on if that is how it was left. It defaults to off,
+    // and starting up injecting into someone's desktop unannounced would be
+    // rude -- but having been switched on by hand is an announcement, and
+    // losing it on every restart was worse: twice in one afternoon a feature
+    // looked broken when it was only switched off.
+    enabled_ = settings_.injection();
+    frames_.set_budget_tiles(settings_.sweep_tiles());
+    {
+        std::lock_guard lock(pipeline_mutex_);
+        pipeline_->set_enabled(enabled_);
+        pipeline_->smoother().set_enabled(settings_.smoothing());
+        pipeline_->smoother().set_step_px(settings_.smoothing_step_px());
+        pipeline_->smoother().set_alpha(settings_.smoothing_alpha());
+    }
 
     refresh_layout(true);
     DZ_INFO("host ready");
@@ -662,6 +683,7 @@ void HostApp::draw_status_panel() {
             std::lock_guard lock(pipeline_mutex_);
             pipeline_->set_enabled(enabled_);
         }
+        settings_.set_injection(enabled_);
         if (transport_ && session_active_) {
             send_host_state();
         }
@@ -815,6 +837,7 @@ void HostApp::draw_screen_panel() {
     int budget = frames_.budget_tiles();
     if (ImGui::SliderInt("Sweep tiles per batch", &budget, 1, 64)) {
         frames_.set_budget_tiles(budget);
+        settings_.set_sweep_tiles(budget);
     }
     ImGui::SetItemTooltip(
         "Tiles one batch spends on the sweep. The tile under the pen is sent on top of "
@@ -875,10 +898,14 @@ void HostApp::draw_smoothing_panel() {
     ImGui::TextDisabled("%llu point(s) generated", static_cast<unsigned long long>(points));
 
     if (enabled != was_enabled || step != was_step || alpha_choice != was_alpha) {
-        std::lock_guard lock(pipeline_mutex_);
-        pipeline_->smoother().set_enabled(enabled);
-        pipeline_->smoother().set_step_px(step);
-        pipeline_->smoother().set_alpha(alpha_choice == 0 ? 0.0 : (alpha_choice == 2 ? 1.0 : 0.5));
+        const double alpha = alpha_choice == 0 ? 0.0 : (alpha_choice == 2 ? 1.0 : 0.5);
+        {
+            std::lock_guard lock(pipeline_mutex_);
+            pipeline_->smoother().set_enabled(enabled);
+            pipeline_->smoother().set_step_px(step);
+            pipeline_->smoother().set_alpha(alpha);
+        }
+        settings_.set_smoothing(enabled, step, alpha);
     }
 }
 

@@ -52,6 +52,7 @@ endif()
 
 add_library(digitiz_host_lib STATIC
     src/app/HostApp.cpp
+    src/app/HostSettings.cpp
     src/display/Win32DisplayInfo.cpp
     src/input/PointerPipeline.cpp
     src/input/SplineSmoother.cpp

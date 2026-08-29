@@ -216,8 +216,13 @@ PC 화면을 켜면 화면 자체가 같은 답을 더 잘 주므로 미니맵�
 ## 빌드 (PC)
 
 ```bash
-cmake --preset debug && cmake --build --preset debug && ctest --preset debug
+cmake --preset release && cmake --build --preset release && ctest --preset release
 ```
+
+**릴리스가 기본이다.** 이 프로그램은 인코딩이 프레임 예산을 정하는 종류라 최적화가
+기능에 직접 들어온다 — ETC2 인코딩이 Debug에서 타일당 4 ms, Release에서 **0.7 ms**다.
+Debug로 재고 있으면 한 번에 보낼 수 있는 타일 수를 다섯 배 낮게 잡게 된다.
+`debug` 프리셋도 있고 디버거를 붙일 때 쓰면 된다.
 
 ### Windows 주의
 

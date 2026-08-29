@@ -1,5 +1,8 @@
 #include <cstdio>
+#include <filesystem>
+#include <string>
 #include <string_view>
+#include <system_error>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -27,6 +30,18 @@ void enable_dpi_awareness() {
                      ::GetLastError());
     }
 #endif
+}
+
+// host.txt sits beside the executable rather than in a user directory: this
+// is a tool run out of its own build tree, and a settings file you can see
+// next to the binary is easier to reason about than one hidden away.
+std::string settings_dir_beside(const char* argv0) {
+    std::error_code ec;
+    const std::filesystem::path exe = std::filesystem::absolute(argv0 ? argv0 : "", ec);
+    if (ec || !exe.has_parent_path()) {
+        return std::filesystem::current_path(ec).string();
+    }
+    return exe.parent_path().string();
 }
 
 } // namespace
@@ -98,7 +113,7 @@ int main(int argc, char** argv) {
     }
 
     digitiz::host::HostApp app(log_store);
-    if (!app.init()) {
+    if (!app.init(settings_dir_beside(argv[0]))) {
         return 1;
     }
     app.start_transport();

@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "app/HostSettings.hpp"
 #include "app/LatencyStats.hpp"
 #include "display/DisplayInfo.hpp"
 #include "input/InputInjector.hpp"
@@ -29,7 +30,10 @@ class HostApp {
 public:
     explicit HostApp(LogStore& log);
 
-    bool init();
+    // `settings_dir` is where host.txt lives, normally the executable's own
+    // directory. Empty keeps the settings in memory, which is what the
+    // headless self-test wants -- it must not write over what the user set.
+    bool init(const std::string& settings_dir = {});
 
     // Separate from init() so `--selftest` can exercise injection without
     // touching adb or opening a socket.
@@ -143,6 +147,7 @@ private:
     proto::ActiveWindow active_window_;
     bool active_window_known_ = false;
 
+    HostSettings settings_;
     bool enabled_ = false;
     AccuracyResult accuracy_;
 
