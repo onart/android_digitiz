@@ -61,6 +61,7 @@ add_library(digitiz_host_lib STATIC
     src/platform/Win32ForegroundWatcher.cpp
     src/platform/Win32Process.cpp
     src/screen/CaptureProbe.cpp
+    src/screen/BlockLayoutProbe.cpp
     src/screen/Etc2.cpp
     src/screen/Etc2Compute.cpp
     src/screen/Etc2ComputeTest.cpp

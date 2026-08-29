@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <cstdlib>
 #include <string_view>
 #include <system_error>
 
@@ -14,6 +15,7 @@
 
 #include "app/HostApp.hpp"
 #include "screen/CaptureProbe.hpp"
+#include "screen/BlockLayoutProbe.hpp"
 #include "screen/Etc2ComputeTest.hpp"
 #include "screen/Etc2Conformance.hpp"
 #include "screen/FrameProbe.hpp"
@@ -54,6 +56,8 @@ int main(int argc, char** argv) {
     bool capture_test = false;
     bool etc2_test = false;
     bool gpu_encode_test = false;
+    bool layout_test = false;
+    int layout_divisor = 2;
     bool frame_test = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
@@ -65,6 +69,17 @@ int main(int argc, char** argv) {
             etc2_test = true;
         } else if (arg == "--gpu-encode-test") {
             gpu_encode_test = true;
+        } else if (arg == "--layout-test") {
+            layout_test = true;
+            // Optional resolution ratio, so the case with the longest runs
+            // (no downscale at all) can be asked for too.
+            if (i + 1 < argc) {
+                const int n = std::atoi(argv[i + 1]);
+                if (n > 0) {
+                    layout_divisor = n;
+                    ++i;
+                }
+            }
         } else if (arg == "--frame-test") {
             frame_test = true;
         }
@@ -83,6 +98,10 @@ int main(int argc, char** argv) {
 
     if (frame_test) {
         return digitiz::host::run_frame_probe(6, 2, "frame_probe.bmp") ? 0 : 1;
+    }
+
+    if (layout_test) {
+        return digitiz::host::run_block_layout_probe(layout_divisor) ? 0 : 1;
     }
 
     if (gpu_encode_test) {
