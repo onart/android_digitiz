@@ -78,6 +78,23 @@ install)
     shift || true
     install "$@"
     ;;
+release)
+    shift || true
+    # The release APK, which is a different task and a different output
+    # directory from everything else here. Same two traps as the rest of this
+    # script -- the inherited JAVA_HOME and Git Bash rewriting paths -- which
+    # is why it is a subcommand rather than a line in the README that someone
+    # has to retype correctly.
+    (cd "$GUEST" && ./gradlew.bat :app:assembleRelease "$@")
+    signed="$GUEST/app/build/outputs/apk/release/app-release.apk"
+    unsigned="$GUEST/app/build/outputs/apk/release/app-release-unsigned.apk"
+    if [ -f "$signed" ]; then
+        echo "signed: $signed"
+    elif [ -f "$unsigned" ]; then
+        echo "unsigned: $unsigned"
+        echo "this will not install; fill in guest/keystore.properties to sign it" >&2
+    fi
+    ;;
 run)
     shift || true
     install "$@"
@@ -91,7 +108,7 @@ log)
     "$ADB" logcat -s digitiz:V AndroidRuntime:E
     ;;
 *)
-    echo "usage: $0 {build|install|run|log}" >&2
+    echo "usage: $0 {build|install|run|log|release}" >&2
     exit 2
     ;;
 esac

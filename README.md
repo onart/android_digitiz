@@ -285,10 +285,32 @@ docs/     설계 문서
 
 ## 릴리스 서명 (Android)
 
-`guest/keystore.properties` 가 있으면 `assembleRelease` 가 그 키로 서명하고,
-없으면 `app-release-unsigned.apk` 가 나옵니다. 서명되지 않은 APK는 설치되지
-않는데, 그게 정직한 결과입니다 — 디버그 키로 조용히 서명해 내보내는 것보다 낫습니다.
+```bash
+./tools/guest.sh release
+```
+
+`guest/keystore.properties` 에 쓸 수 있는 키가 있으면 서명하고, 없으면
+`app-release-unsigned.apk` 가 나옵니다. 서명 안 된 APK는 설치되지 않는데 그게
+정직한 결과입니다 — 디버그 키로 조용히 서명해 내보내는 것보다 낫습니다.
+`storeFile` 이 비어 있거나 그 자리에 파일이 없으면 빌드를 깨지 않고 서명만
+건너뜁니다.
 
 키는 저장소에 넣지 않습니다. `guest/keystore.properties.example` 을 복사해서 채우고,
 `.jks` 파일 자체도 저장소 밖에 두고 백업하세요. **잃어버리면 같은 앱으로 다시는
 업데이트할 수 없습니다.**
+
+`gradlew` 를 직접 부르실 거면 `JAVA_HOME` 을 먼저 넘겨야 합니다. **쉘마다 문법이
+다릅니다** — PowerShell에는 `VAR=값 명령` 형태가 없습니다:
+
+```bash
+# Git Bash
+JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" guest/gradlew.bat -p guest :app:assembleRelease
+```
+
+```powershell
+# PowerShell
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+.\guest\gradlew.bat -p guest :app:assembleRelease
+```
+
+`tools/guest.sh release` 를 쓰면 둘 다 신경 쓸 필요가 없습니다.

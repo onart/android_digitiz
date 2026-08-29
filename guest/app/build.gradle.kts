@@ -19,6 +19,22 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+// Only when there is a key actually sitting there. A half-filled properties
+// file -- copied from the example and not finished -- used to configure signing
+// against a path with nothing at it, and the build failed at the very end with
+// a Gradle error about a missing keystore. Falling back to unsigned and saying
+// so is the better answer to "not set up yet".
+val keystoreFile = keystoreProperties.getProperty("storeFile")
+    ?.takeIf { it.isNotBlank() }
+    ?.let { rootProject.file(it) }
+    ?.takeIf { it.isFile }
+
+if (rootProject.file("keystore.properties").exists() && keystoreFile == null) {
+    logger.lifecycle(
+        "keystore.properties has no usable storeFile; the release APK will be unsigned"
+    )
+}
+
 android {
     namespace = "com.onart.digitiz"
     compileSdk = 35
@@ -68,9 +84,9 @@ android {
     }
 
     signingConfigs {
-        if (keystoreProperties.getProperty("storeFile") != null) {
+        if (keystoreFile != null) {
             create("release") {
-                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storeFile = keystoreFile
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
