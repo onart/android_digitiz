@@ -833,6 +833,17 @@ void HostApp::draw_screen_panel() {
     ImGui::Text("encode %.1f ms   skipped while busy %llu   captures %llu", s.last_encode_ms,
                 static_cast<unsigned long long>(s.skipped_busy),
                 static_cast<unsigned long long>(s.captures));
+    if (s.tiles > 0 && s.frames > 0) {
+        ImGui::Text("per tile: gather %.0f us, etc2 %.0f us   per batch: read %.0f us, "
+                    "zstd %.0f us",
+                    static_cast<double>(s.gather_us) / static_cast<double>(s.tiles),
+                    static_cast<double>(s.etc2_us) / static_cast<double>(s.tiles),
+                    static_cast<double>(s.read_us) / static_cast<double>(s.frames),
+                    static_cast<double>(s.zstd_us) / static_cast<double>(s.frames));
+        ImGui::SetItemTooltip(
+            "The readback is once per batch and does not grow with the budget; the "
+            "downscale and the encode are per tile and do.");
+    }
 
     int budget = frames_.budget_tiles();
     if (ImGui::SliderInt("Sweep tiles per batch", &budget, 1, 64)) {

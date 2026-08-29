@@ -254,6 +254,15 @@ bool run_frame_probe(int seconds, int divisor, const std::string& bmp_path) {
     DZ_INFO("frame probe: last encode %.1f ms, %llu capture(s)", s.last_encode_ms,
             static_cast<unsigned long long>(s.captures));
 
+    // Averaged over the run rather than reported for the last batch: one batch
+    // of one tile is too small a sample to say anything with.
+    const double per_tile = s.tiles > 0 ? static_cast<double>(s.tiles) : 1.0;
+    const double per_batch = s.frames > 0 ? static_cast<double>(s.frames) : 1.0;
+    DZ_INFO("frame probe: per tile  gather %.0f us, etc2 %.0f us", s.gather_us / per_tile,
+            s.etc2_us / per_tile);
+    DZ_INFO("frame probe: per batch read %.0f us, zstd %.0f us", s.read_us / per_batch,
+            s.zstd_us / per_batch);
+
     sender.stop();
 
     if (receiver.surface.empty()) {

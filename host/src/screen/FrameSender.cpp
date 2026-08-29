@@ -236,10 +236,18 @@ void FrameSender::send_batch() {
     for (const std::uint16_t index : selected_) {
         int w = 0;
         int h = 0;
+        const auto t0 = std::chrono::steady_clock::now();
         if (!gather_tile(static_cast<int>(index), w, h)) {
             continue;
         }
-        if (!etc2_encode(tile_pixels_.data(), w, h, w * 4, blocks)) {
+        const auto t1 = std::chrono::steady_clock::now();
+        const bool encoded = etc2_encode(tile_pixels_.data(), w, h, w * 4, blocks);
+        const auto t2 = std::chrono::steady_clock::now();
+        stats_.gather_us +=
+            static_cast<std::uint64_t>(std::chrono::duration<double, std::micro>(t1 - t0).count());
+        stats_.etc2_us +=
+            static_cast<std::uint64_t>(std::chrono::duration<double, std::micro>(t2 - t1).count());
+        if (!encoded) {
             continue;
         }
         payload_.insert(payload_.end(), blocks.begin(), blocks.end());
@@ -250,8 +258,12 @@ void FrameSender::send_batch() {
     }
 
     compressed_.resize(ZSTD_compressBound(payload_.size()));
+    const auto zstd_started = std::chrono::steady_clock::now();
     const std::size_t n = ZSTD_compress(compressed_.data(), compressed_.size(), payload_.data(),
                                         payload_.size(), kZstdLevel);
+    stats_.zstd_us += static_cast<std::uint64_t>(
+        std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - zstd_started)
+            .count());
     if (ZSTD_isError(n)) {
         DZ_WARN("screen: compression failed (%s)", ZSTD_getErrorName(n));
         return;
@@ -320,7 +332,13 @@ void FrameSender::tick() {
     // One readback for the whole region, then tiles are cut out of it. This is
     // the expensive part and the one a compute shader replaces.
     if (holding && pixels_stale_ && scheduler_.anything_dirty()) {
-        if (source_->read(geometry_.region, region_pixels_, region_stride_)) {
+        const auto read_started = std::chrono::steady_clock::now();
+        const bool got = source_->read(geometry_.region, region_pixels_, region_stride_);
+        stats_.read_us += static_cast<std::uint64_t>(
+            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() -
+                                                      read_started)
+                .count());
+        if (got) {
             region_valid_ = true;
             pixels_stale_ = false;
         }

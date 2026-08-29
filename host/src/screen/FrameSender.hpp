@@ -40,6 +40,16 @@ public:
         std::uint64_t skipped_busy = 0; // the previous batch had not drained
         std::uint64_t captures = 0;
         double last_encode_ms = 0.0;
+
+        // Where the time goes, cumulative in microseconds. Split because the
+        // three are charged differently: the readback is once per batch and
+        // does not grow with the budget, while the downscale and the encode
+        // are per tile and do. Which of them dominates decides whether a
+        // bigger batch is nearly free or nearly linear.
+        std::uint64_t read_us = 0;   // per batch
+        std::uint64_t gather_us = 0; // per tile: cut out and box-average
+        std::uint64_t etc2_us = 0;   // per tile
+        std::uint64_t zstd_us = 0;   // per batch
     };
 
     // Queues one message of screen data. The caller routes it as bulk.
