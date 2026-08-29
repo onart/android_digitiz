@@ -46,6 +46,7 @@ public:
         // does not grow with the budget, while the downscale and the encode
         // are per tile and do. Which of them dominates decides whether a
         // bigger batch is nearly free or nearly linear.
+        std::uint64_t gpu_batches = 0; // encoded without pixels crossing the bus
         std::uint64_t read_us = 0;   // per batch
         std::uint64_t gather_us = 0; // per tile: cut out and box-average
         std::uint64_t etc2_us = 0;   // per tile
@@ -148,6 +149,7 @@ private:
     std::vector<std::uint8_t> payload_;
     std::vector<std::uint8_t> compressed_;
     std::vector<std::uint16_t> selected_;
+    std::vector<TileJob> jobs_;
 
     Sink sink_;
     ReadyTest ready_;

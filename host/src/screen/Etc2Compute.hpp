@@ -30,17 +30,12 @@
 
 #include <digitiz/core/geometry.hpp>
 
-namespace digitiz::host {
+// TileJob lives with the interface that hands them over. Here the rectangles
+// are in the texture's own coordinates, not the desktop's; the capture does
+// that conversion before calling in.
+#include "screen/FrameSource.hpp"
 
-// One tile to encode: where to sample it from, and how large it comes out.
-struct TileJob {
-    // Source rectangle in the texture's own coordinates.
-    core::Recti src{};
-    // Encoded size, both multiples of four. Smaller than `src` means a box
-    // average; equal means a straight copy.
-    int out_w = 0;
-    int out_h = 0;
-};
+namespace digitiz::host {
 
 class Etc2ComputeEncoder {
 public:

@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
+#include <span>
+#include <vector>
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -14,6 +17,8 @@
 #include <wrl/client.h>
 
 #include <digitiz/core/log.hpp>
+
+#include "screen/Etc2Compute.hpp"
 
 namespace digitiz::host {
 
@@ -119,6 +124,35 @@ public:
         }
         return true;
     }
+
+    bool encode_tiles(std::span<const TileJob> jobs, std::vector<std::uint8_t>& blocks) override {
+        if (!desktop_valid_ || !desktop_srv_ || !encoder_ || jobs.empty()) {
+            return false;
+        }
+
+        // Into the output's own coordinates, and only if every tile is wholly
+        // inside it. A tile hanging over the edge would sample zeros where the
+        // CPU path skips those pixels, so rather than encode it differently
+        // this hands the whole batch back and lets the CPU do it.
+        jobs_.clear();
+        jobs_.reserve(jobs.size());
+        for (const TileJob& job : jobs) {
+            if (job.src.x < bounds_.x || job.src.y < bounds_.y ||
+                job.src.x + job.src.w > bounds_.x + bounds_.w ||
+                job.src.y + job.src.h > bounds_.y + bounds_.h) {
+                return false;
+            }
+            jobs_.push_back(TileJob{
+                core::Recti{job.src.x - bounds_.x, job.src.y - bounds_.y, job.src.w, job.src.h},
+                job.out_w, job.out_h});
+        }
+        return encoder_->encode(desktop_srv_.Get(), jobs_, blocks);
+    }
+
+    double encode_dispatch_us() const override {
+        return encoder_ ? encoder_->dispatch_us() : 0.0;
+    }
+    double encode_map_us() const override { return encoder_ ? encoder_->map_us() : 0.0; }
 
     bool read(core::Recti rect, std::vector<std::uint8_t>& out, int& stride) override {
         // Deliberately not tied to holding a frame; see the copy in next().
@@ -318,6 +352,13 @@ private:
             DZ_ERROR("capture: could not create the desktop copy");
             return false;
         }
+        if (FAILED(device_->CreateShaderResourceView(desktop_.Get(), nullptr, &desktop_srv_))) {
+            // Only the compute path needs this; without it read() still works.
+            DZ_WARN("capture: no shader view of the desktop copy");
+        }
+        if (!encoder_) {
+            encoder_ = Etc2ComputeEncoder::create(device_.Get());
+        }
         return true;
     }
 
@@ -352,6 +393,9 @@ private:
     ComPtr<ID3D11Texture2D> frame_texture_;
     // Ours, refreshed on every acquire, readable at any time.
     ComPtr<ID3D11Texture2D> desktop_;
+    ComPtr<ID3D11ShaderResourceView> desktop_srv_;
+    std::unique_ptr<Etc2ComputeEncoder> encoder_;
+    std::vector<TileJob> jobs_;
     bool desktop_valid_ = false;
     ComPtr<ID3D11Texture2D> staging_;
     UINT staging_w_ = 0;

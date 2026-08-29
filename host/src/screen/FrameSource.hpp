@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include <digitiz/core/geometry.hpp>
@@ -50,6 +51,16 @@ struct FrameUpdate {
     std::uint32_t accumulated = 0;
 };
 
+// One tile to encode straight out of the captured frame, in virtual-desktop
+// pixels like everything else this interface speaks.
+struct TileJob {
+    core::Recti src{};
+    // Encoded size, both multiples of four. Smaller than `src` is a box
+    // average; equal is a straight copy.
+    int out_w = 0;
+    int out_h = 0;
+};
+
 class IFrameSource {
 public:
     virtual ~IFrameSource() = default;
@@ -73,6 +84,24 @@ public:
     // something to chew on. The real pipeline compresses on the GPU and never
     // brings the raw frame across.
     virtual bool read(core::Recti rect, std::vector<std::uint8_t>& out, int& stride) = 0;
+
+    // Encodes tiles to ETC2 blocks without bringing the pixels across, when
+    // the backend can do it. Blocks come back concatenated in job order,
+    // exactly as the CPU path lays them out.
+    //
+    // Returning false is not a failure. It means this backend has no such
+    // path, or cannot take this particular request, and the caller should read
+    // pixels and encode them itself -- which is what every platform without a
+    // shader for it does.
+    virtual bool encode_tiles(std::span<const TileJob> /*jobs*/,
+                              std::vector<std::uint8_t>& /*blocks*/) {
+        return false;
+    }
+
+    // Microseconds the last encode_tiles spent queuing work and then waiting
+    // for it. Only meaningful right after one that returned true.
+    virtual double encode_dispatch_us() const { return 0.0; }
+    virtual double encode_map_us() const { return 0.0; }
 };
 
 // Returns nullptr on platforms without an implementation yet.

@@ -266,41 +266,63 @@ void FrameSender::send_batch() {
         return;
     }
 
-    // Choosing before reading is what makes the budget cheap. The readback
-    // does not care how many tiles are wanted, only how large a box they span,
-    // and one tile out of a full-screen region used to cost the whole region.
-    // It is also the order a compute encoder needs: it cannot start until it
-    // knows which tiles.
-    if (!read_selection()) {
-        return;
-    }
-
     const auto started = std::chrono::steady_clock::now();
 
     payload_.clear();
-    std::vector<std::uint8_t> blocks;
     std::vector<std::uint16_t> sent;
     sent.reserve(selected_.size());
 
+    // The capture encodes it itself where it can, and then nothing but blocks
+    // crosses the bus. Where it cannot -- another platform, a tile hanging off
+    // the edge of the output -- the pixels come across and are encoded here,
+    // which is the same work in the same order and the same bytes out.
+    jobs_.clear();
+    jobs_.reserve(selected_.size());
     for (const std::uint16_t index : selected_) {
-        int w = 0;
-        int h = 0;
-        const auto t0 = std::chrono::steady_clock::now();
-        if (!gather_tile(static_cast<int>(index), w, h)) {
-            continue;
+        const core::Recti out = geometry_.tile_output_rect(static_cast<int>(index));
+        const core::Recti src = geometry_.tile_source_rect(static_cast<int>(index));
+        if (out.w <= 0 || out.h <= 0 || src.w <= 0 || src.h <= 0) {
+            jobs_.clear();
+            break;
         }
-        const auto t1 = std::chrono::steady_clock::now();
-        const bool encoded = etc2_encode(tile_pixels_.data(), w, h, w * 4, blocks);
-        const auto t2 = std::chrono::steady_clock::now();
-        stats_.gather_us +=
-            static_cast<std::uint64_t>(std::chrono::duration<double, std::micro>(t1 - t0).count());
-        stats_.etc2_us +=
-            static_cast<std::uint64_t>(std::chrono::duration<double, std::micro>(t2 - t1).count());
-        if (!encoded) {
-            continue;
+        jobs_.push_back(TileJob{src, out.w, out.h});
+    }
+
+    if (!jobs_.empty() && source_->encode_tiles(jobs_, payload_)) {
+        sent.assign(selected_.begin(), selected_.end());
+        ++stats_.gpu_batches;
+        stats_.read_us += static_cast<std::uint64_t>(source_->encode_dispatch_us() +
+                                                     source_->encode_map_us());
+    } else {
+        // Choosing before reading is what makes the budget cheap. The readback
+        // does not care how many tiles are wanted, only how large a box they
+        // span, and one tile out of a full-screen region used to cost the
+        // whole region.
+        if (!read_selection()) {
+            return;
         }
-        payload_.insert(payload_.end(), blocks.begin(), blocks.end());
-        sent.push_back(index);
+
+        std::vector<std::uint8_t> blocks;
+        for (const std::uint16_t index : selected_) {
+            int w = 0;
+            int h = 0;
+            const auto t0 = std::chrono::steady_clock::now();
+            if (!gather_tile(static_cast<int>(index), w, h)) {
+                continue;
+            }
+            const auto t1 = std::chrono::steady_clock::now();
+            const bool encoded = etc2_encode(tile_pixels_.data(), w, h, w * 4, blocks);
+            const auto t2 = std::chrono::steady_clock::now();
+            stats_.gather_us += static_cast<std::uint64_t>(
+                std::chrono::duration<double, std::micro>(t1 - t0).count());
+            stats_.etc2_us += static_cast<std::uint64_t>(
+                std::chrono::duration<double, std::micro>(t2 - t1).count());
+            if (!encoded) {
+                continue;
+            }
+            payload_.insert(payload_.end(), blocks.begin(), blocks.end());
+            sent.push_back(index);
+        }
     }
     if (sent.empty()) {
         return;

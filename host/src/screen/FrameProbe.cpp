@@ -262,6 +262,9 @@ bool run_frame_probe(int seconds, int divisor, const std::string& bmp_path) {
             s.etc2_us / per_tile);
     DZ_INFO("frame probe: per batch read %.0f us, zstd %.0f us", s.read_us / per_batch,
             s.zstd_us / per_batch);
+    DZ_INFO("frame probe: %llu of %llu batch(es) encoded on the GPU",
+            static_cast<unsigned long long>(s.gpu_batches),
+            static_cast<unsigned long long>(s.frames));
 
     sender.stop();
 
