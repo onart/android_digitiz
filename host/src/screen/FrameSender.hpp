@@ -124,10 +124,11 @@ private:
     bool geometry_ready_ = false;
 
     std::uint32_t seq_ = 0;
-    // One. The default spends the link on how fresh the pen's own tile is
-    // rather than on how fast the rest catches up, which is the right way
-    // round for drawing; raise it when the whole picture matters more.
-    int budget_tiles_ = 1;
+    // Four. One was a bad default: the readback is charged per batch, so a
+    // budget of one pays the whole fixed cost to ship a single 2 KB tile. And
+    // it bought nothing for the pen, whose tile is outside the budget and goes
+    // every batch whatever this is.
+    int budget_tiles_ = 4;
     bool pen_down_ = false;
     int logged_pen_ = -1;
     std::int32_t pen_x_ = 0;

@@ -3,6 +3,7 @@
 #include "screen/FrameSource.hpp"
 
 #include <algorithm>
+#include <chrono>
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -148,11 +149,30 @@ public:
         box.bottom = box.top + h;
         box.front = 0;
         box.back = 1;
+        // Timed apart because they cost for different reasons and only one of
+        // them can be designed around. The copy is queued and returns at once;
+        // the map is where the CPU waits for the GPU to have actually done it,
+        // along with everything else queued in front of it.
+        const auto copy_started = std::chrono::steady_clock::now();
         context_->CopySubresourceRegion(staging_.Get(), 0, 0, 0, 0, desktop_.Get(), 0, &box);
+        const auto copy_done = std::chrono::steady_clock::now();
 
         D3D11_MAPPED_SUBRESOURCE mapped{};
         if (FAILED(context_->Map(staging_.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
             return false;
+        }
+        const auto map_done = std::chrono::steady_clock::now();
+
+        copy_us_ += std::chrono::duration<double, std::micro>(copy_done - copy_started).count();
+        map_us_ += std::chrono::duration<double, std::micro>(map_done - copy_done).count();
+        ++reads_;
+        if (map_done - reported_ > std::chrono::seconds(1)) {
+            reported_ = map_done;
+            DZ_DEBUG("capture: %d read(s), copy %.0f us, map %.0f us, %u x %u", reads_,
+                     copy_us_ / reads_, map_us_ / reads_, w, h);
+            copy_us_ = 0.0;
+            map_us_ = 0.0;
+            reads_ = 0;
         }
 
         stride = static_cast<int>(w) * 4;
@@ -336,6 +356,13 @@ private:
     ComPtr<ID3D11Texture2D> staging_;
     UINT staging_w_ = 0;
     UINT staging_h_ = 0;
+
+    // Rolling, reported once a second: the readback is the piece the design is
+    // trying to get rid of, so what it costs and why should be visible.
+    double copy_us_ = 0.0;
+    double map_us_ = 0.0;
+    int reads_ = 0;
+    std::chrono::steady_clock::time_point reported_{};
 
     std::vector<std::uint8_t> metadata_;
     core::Recti bounds_{};
