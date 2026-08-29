@@ -108,6 +108,9 @@ private:
     // capture belongs to the UI thread and nothing else may touch it.
     proto::ViewportReq pending_viewport_;
     bool viewport_pending_ = false;
+    // Whether the guest's pen is touching. The sender wants the tile under it
+    // with every batch, and wants to stop as soon as the finger lifts.
+    bool pen_down_ = false;
 
     // Guest timestamps are on the phone's monotonic clock, which shares no
     // epoch with ours, so they have to be translated before they mean anything.

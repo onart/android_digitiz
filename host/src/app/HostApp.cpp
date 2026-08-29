@@ -99,6 +99,7 @@ void HostApp::tick() {
     pump_session();
 
     bool apply_viewport = false;
+    bool pen_down = false;
     proto::ViewportReq request;
     {
         std::lock_guard lock(session_mutex_);
@@ -107,10 +108,21 @@ void HostApp::tick() {
             request = pending_viewport_;
             apply_viewport = true;
         }
+        pen_down = pen_down_;
     }
     if (apply_viewport) {
         frames_.set_viewport(request);
     }
+
+    // Taken from the cursor rather than from the pointer message, because by
+    // here the pipeline has resolved relative and window-relative coordinates
+    // and put the curve through the smoother. This is where the stroke landed,
+    // which is the square worth repainting.
+    std::int32_t pen_x = 0;
+    std::int32_t pen_y = 0;
+    const bool have_pen = pen_down && injector_ && injector_->cursor_pos(pen_x, pen_y);
+    frames_.set_pen(have_pen, pen_x, pen_y);
+
     frames_.tick();
 }
 
@@ -161,6 +173,8 @@ void HostApp::on_transport_disconnect() {
     std::lock_guard lock(session_mutex_);
     guest_known_ = false;
     rtt_ms_ = -1.0;
+    // A cable pulled mid-stroke leaves no Up behind it.
+    pen_down_ = false;
 }
 
 void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byte> payload) {
@@ -212,6 +226,11 @@ void HostApp::on_transport_message(proto::MsgType type, std::span<const std::byt
 
         {
             std::lock_guard lock(session_mutex_);
+            // Down and Move mean it is on the glass; Up and Cancel mean it is
+            // not, and Cancel especially -- that is the one that arrives when
+            // a dialog steals the focus, with no Up to follow it.
+            pen_down_ = p.action != proto::PointerAction::Up &&
+                        p.action != proto::PointerAction::Cancel;
             if (last_sample_us_ != 0 && arrived_us > last_sample_us_) {
                 sample_interval_.add(static_cast<double>(arrived_us - last_sample_us_) / 1000.0);
             }

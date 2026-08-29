@@ -179,7 +179,22 @@ bool FrameSender::gather_tile(int index, int& w, int& h) {
     return true;
 }
 
+int FrameSender::pen_tile() const noexcept {
+    if (!pen_down_ || !geometry_.valid()) {
+        return -1;
+    }
+    const core::Recti hit = geometry_.tiles_touching(core::Recti{pen_x_, pen_y_, 1, 1});
+    if (hit.w <= 0 || hit.h <= 0) {
+        return -1;
+    }
+    return hit.y * geometry_.cols() + hit.x;
+}
+
 void FrameSender::send_batch() {
+    // Resolved here rather than when the pointer arrived, so that a viewport
+    // change between the two cannot leave a tile number meaning a different
+    // square than it did.
+    scheduler_.set_focus(pen_tile());
     scheduler_.select(budget_tiles(), selected_);
     if (selected_.empty()) {
         return;

@@ -85,12 +85,24 @@ public:
     void set_budget_tiles(int tiles) noexcept { budget_tiles_ = tiles > 0 ? tiles : 1; }
     int budget_tiles() const noexcept { return budget_tiles_; }
 
+    // Where the pen is on the desktop, and whether it is touching. Kept as a
+    // point rather than a tile number because a viewport change renumbers the
+    // tiles, and a stale number would paint the wrong square.
+    void set_pen(bool down, std::int32_t pc_x, std::int32_t pc_y) noexcept {
+        pen_down_ = down;
+        pen_x_ = pc_x;
+        pen_y_ = pc_y;
+    }
+
 private:
     bool ensure_source();
     // True when a frame was acquired and is still held, which is the only
     // time its pixels can be read.
     bool capture();
     void send_batch();
+    // The tile the pen is on, or -1: not touching, not streaming, or touching
+    // somewhere outside the region the guest asked for.
+    int pen_tile() const noexcept;
     // Copies one tile out of the captured region, scaling if the encoded size
     // differs, into `tile_pixels_`.
     bool gather_tile(int index, int& w, int& h);
@@ -107,6 +119,9 @@ private:
     // rather than on how fast the rest catches up, which is the right way
     // round for drawing; raise it when the whole picture matters more.
     int budget_tiles_ = 1;
+    bool pen_down_ = false;
+    std::int32_t pen_x_ = 0;
+    std::int32_t pen_y_ = 0;
     std::chrono::steady_clock::time_point last_frame_{};
 
     // The captured region, read back once per batch. This is the GPU-to-CPU
