@@ -194,7 +194,14 @@ void FrameSender::send_batch() {
     // Resolved here rather than when the pointer arrived, so that a viewport
     // change between the two cannot leave a tile number meaning a different
     // square than it did.
-    scheduler_.set_focus(pen_tile());
+    const int pen = pen_tile();
+    // Only when it moves to a different square, which is a handful of lines
+    // per stroke rather than one per batch.
+    if (pen != logged_pen_) {
+        logged_pen_ = pen;
+        DZ_DEBUG("screen: pen tile %d", pen);
+    }
+    scheduler_.set_focus(pen);
     scheduler_.select(budget_tiles(), selected_);
     if (selected_.empty()) {
         return;

@@ -120,6 +120,7 @@ private:
     // round for drawing; raise it when the whole picture matters more.
     int budget_tiles_ = 1;
     bool pen_down_ = false;
+    int logged_pen_ = -1;
     std::int32_t pen_x_ = 0;
     std::int32_t pen_y_ = 0;
     std::chrono::steady_clock::time_point last_frame_{};
